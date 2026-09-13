@@ -112,14 +112,20 @@ async def live_tick_background_loop():
 # ══════════════════════════════════════════════════════════════════
 # PAGE ROUTES (HTML FRONTEND)
 # ══════════════════════════════════════════════════════════════════
-@app.get("/", response_class=HTMLResponse)
+@app.api_route("/", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def index_route(request: Request):
+    if request.method == "HEAD":
+        return Response(status_code=200)
     user = get_current_user(request)
     if not user:
         return RedirectResponse("/login")
     if user["role"] == "admin":
         return RedirectResponse("/admin")
     return RedirectResponse("/trade")
+
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+def health_check():
+    return {"status": "ok", "app": "QuantGini"}
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page():

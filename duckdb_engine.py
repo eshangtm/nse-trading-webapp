@@ -87,6 +87,10 @@ class DuckDBEngine:
                             time_value DOUBLE
                         );
                     """)
+                    conn.execute("""
+                        CREATE VIEW IF NOT EXISTS ticks AS 
+                        SELECT SUBSTR(timestamp, 1, 10) as date, * FROM nifty_ticks;
+                    """)
                     try:
                         conn.execute("ALTER TABLE nifty_ticks ADD COLUMN IF NOT EXISTS iv DOUBLE;")
                         conn.execute("ALTER TABLE nifty_ticks ADD COLUMN IF NOT EXISTS intrinsic_value DOUBLE;")
@@ -274,8 +278,8 @@ class DuckDBEngine:
                         return res
                 finally:
                     conn_f.close()
-            except Exception as ef:
-                print("F drive get_latest_option_chain error:", ef)
+            except Exception:
+                pass
 
         return pd.DataFrame()
 
