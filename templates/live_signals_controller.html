@@ -1,0 +1,1436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Institutional Live Signal Engine & Virtual Wallet Manager</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #090d16;
+            --card-bg: #111827;
+            --card-border: #1f2937;
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --accent-blue: #38bdf8;
+            --gold: #f59e0b;
+            --green: #10b981;
+            --red: #ef4444;
+            --purple: #a855f7;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            padding: 24px 16px;
+            line-height: 1.5;
+        }
+        .container { max-width: 1300px; margin: 0 auto; }
+        
+        /* Header */
+        .header {
+            text-align: center;
+            margin-bottom: 22px;
+            padding: 22px;
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.7), rgba(15, 23, 42, 0.9));
+            border-radius: 16px;
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+        .header h1 {
+            font-size: 26px;
+            font-weight: 800;
+            background: linear-gradient(90deg, #38bdf8, #10b981, #f59e0b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+        .header p { color: var(--text-dim); font-size: 14px; }
+        .nav-links {
+            margin-top: 12px;
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .nav-link-btn {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #38bdf8;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: 0.2s;
+        }
+        .nav-link-btn:hover { background: #0284c7; color: #fff; }
+
+        /* ══════════════════════════════════════════════════════════════
+           DEDICATED VIRTUAL WALLET DASHBOARD
+        ══════════════════════════════════════════════════════════════ */
+        .wallet-dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 14px;
+            margin-bottom: 22px;
+        }
+        .wallet-card {
+            background: linear-gradient(145deg, #131d2e, #0c121e);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 14px;
+            padding: 16px 18px;
+            position: relative;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+        }
+        .wallet-card.pnl-positive {
+            border-color: rgba(16, 185, 129, 0.4);
+            background: linear-gradient(145deg, #0d221a, #081611);
+        }
+        .wallet-card.pnl-negative {
+            border-color: rgba(239, 68, 68, 0.4);
+            background: linear-gradient(145deg, #241114, #15090b);
+        }
+        .wallet-lbl {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 0.5px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .wallet-val {
+            font-size: 22px;
+            font-weight: 800;
+            font-family: 'JetBrains Mono', monospace;
+            color: #f8fafc;
+        }
+        .wallet-sub {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            display: grid;
+            grid-template-columns: 1fr 1.2fr 1fr;
+            gap: 16px;
+            margin-bottom: 22px;
+        }
+        @media (max-width: 900px) {
+            .control-panel { grid-template-columns: 1fr; }
+        }
+        .control-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .card-title { font-size: 15px; font-weight: 700; color: #f8fafc; }
+        
+        /* Master Toggle Switch */
+        .switch-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-top: 10px;
+        }
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 52px;
+            height: 28px;
+        }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #334155;
+            transition: .3s;
+            border-radius: 34px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #10b981; }
+        input:checked + .slider.auto-slider { background-color: #a855f7; }
+        input:checked + .slider:before { transform: translateX(24px); }
+
+        .status-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 6px;
+        }
+        .status-on { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); }
+        .status-off { background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4); }
+        .status-auto { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+
+        /* Lot Sizing Selector */
+        .lot-buttons {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .lot-btn {
+            flex: 1;
+            padding: 9px 4px;
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+            text-align: center;
+        }
+        .lot-btn.active {
+            background: #0284c7;
+            color: white;
+            border-color: #38bdf8;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+        }
+
+        /* Active Signal Alert Box */
+        .signal-alert-box {
+            background: linear-gradient(145deg, #0e1e17, #091410);
+            border: 2px solid #10b981;
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 22px;
+            box-shadow: 0 0 35px rgba(16, 185, 129, 0.2);
+            transition: all 0.3s ease;
+        }
+        .signal-alert-box.put-signal {
+            background: linear-gradient(145deg, #241113, #15090b);
+            border: 2px solid #ef4444;
+            box-shadow: 0 0 35px rgba(239, 68, 68, 0.2);
+        }
+        .signal-alert-box.auto-executed {
+            border-color: #a855f7;
+            box-shadow: 0 0 30px rgba(168, 85, 247, 0.25);
+        }
+        .signal-alert-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .signal-type-badge {
+            font-size: 14px;
+            font-weight: 800;
+            padding: 5px 14px;
+            border-radius: 8px;
+            background: #10b981;
+            color: #052e16;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .signal-type-badge.pe { background: #ef4444; color: #fff; }
+        
+        .signal-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .sig-item {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .sig-lbl { font-size: 10px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 4px; font-weight: 600; }
+        .sig-val { font-size: 16px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+
+        /* 3-Action Buttons */
+        .action-container {
+            background: rgba(15, 23, 42, 0.8);
+            padding: 14px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            margin-top: 12px;
+        }
+        .action-title {
+            font-size: 11px;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+        }
+        .btn-action-group {
+            display: grid;
+            grid-template-columns: 1.4fr 1fr 1.6fr;
+            gap: 10px;
+        }
+        @media (max-width: 768px) {
+            .btn-action-group { grid-template-columns: 1fr; }
+        }
+        .btn-action {
+            padding: 12px 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        .btn-execute {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+        }
+        .btn-execute:hover { background: linear-gradient(135deg, #34d399, #10b981); }
+        .btn-cancel {
+            background: #1e293b;
+            color: #f87171;
+            border: 1px solid #ef4444;
+        }
+        .btn-cancel:hover { background: #ef4444; color: #fff; }
+        .btn-auto {
+            background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(139, 92, 246, 0.3);
+        }
+        .btn-auto:hover { background: linear-gradient(135deg, #a78bfa, #7c3aed); }
+        .btn-auto.active-auto {
+            background: linear-gradient(135deg, #a855f7, #ec4899);
+            border: 1px solid #f472b6;
+        }
+
+        /* Simulation toolbar */
+        .sim-toolbar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px 14px;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .sim-btn {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #334155;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .sim-btn:hover { background: #334155; color: #fff; }
+
+        /* ══════════════════════════════════════════════════════════════
+           DETAILED TRADES LEDGER & SELECTION / DELETION TOOLBAR
+        ══════════════════════════════════════════════════════════════ */
+        .ledger-header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 24px 0 12px 0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .ledger-title {
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .bulk-actions-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .btn-delete-selected {
+            background: #ef4444;
+            color: #ffffff;
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-delete-selected:hover { background: #dc2626; }
+        .btn-reset-wallet {
+            background: #334155;
+            color: #38bdf8;
+            border: 1px solid #475569;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-reset-wallet:hover { background: #1e293b; color: #fff; border-color: #38bdf8; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--card-border);
+        }
+        th, td {
+            padding: 10px 12px;
+            font-size: 12.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            text-align: left;
+        }
+        th {
+            background: #1e293b;
+            color: #cbd5e1;
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.5px;
+        }
+        tr:hover { background: rgba(255, 255, 255, 0.02); }
+        .chk-col { width: 34px; text-align: center; }
+        .chk-col input { cursor: pointer; width: 15px; height: 15px; accent-color: #38bdf8; }
+
+        .tag-buy { color: #10b981; font-weight: 700; }
+        .tag-sell { color: #ef4444; font-weight: 700; }
+        .tag-auto { color: #c084fc; font-weight: 700; }
+        .tag-manual { color: #38bdf8; font-weight: 700; }
+
+        .row-action-btn {
+            background: none;
+            border: 1px solid #334155;
+            color: #94a3b8;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: 0.15s;
+            margin-right: 4px;
+        }
+        .row-action-btn:hover { background: #1e293b; color: #f8fafc; border-color: #64748b; }
+        .row-action-btn.win:hover { color: #10b981; border-color: #10b981; }
+        .row-action-btn.sl:hover { color: #ef4444; border-color: #ef4444; }
+        .row-action-btn.del:hover { color: #f87171; border-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+
+        .table-responsive { width: 100%; overflow-x: auto; border-radius: 12px; border: 1px solid var(--card-border); }
+        .cell-sub { font-size: 11px; color: var(--text-dim); display: block; margin-top: 2px; }
+        .detail-card-row { background: rgba(15, 23, 42, 0.95) !important; }
+        .detail-box {
+            padding: 12px 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+            font-size: 12px;
+            border-left: 3px solid #38bdf8;
+            margin: 6px 0;
+            background: rgba(30, 41, 59, 0.4);
+            border-radius: 6px;
+        }
+        .detail-item-title { color: var(--text-dim); font-size: 10.5px; text-transform: uppercase; font-weight: 700; margin-bottom: 2px; }
+        .detail-item-val { color: #f8fafc; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER -->
+        <div class="header">
+            <h1>⚡ Institutional Live Signal Engine & Virtual Wallet</h1>
+            <p>95.1% Win Rate Selective Master Setup (Max 1-2 Trades/Day) | Strict 7.5 SL | Dedicated Isolated Wallet</p>
+            <div class="nav-links">
+                <a href="/" class="nav-link-btn">📊 Open Main NIFTY50 Web Terminal</a>
+                <a href="/backtest_reports/weekly_40k_profit_report.html" target="_blank" class="nav-link-btn">📑 Weekly 40k Master Report</a>
+                <a href="/backtest_reports/live_signal_emulation_report.html" target="_blank" class="nav-link-btn">🔬 Emulation Engine Audit</a>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             DEDICATED VIRTUAL WALLET DASHBOARD CARDS
+        ══════════════════════════════════════════════════════════════ -->
+        <div class="wallet-dashboard">
+            <div class="wallet-card">
+                <div class="wallet-lbl">
+                    <span>Virtual Capital</span>
+                    <span style="color: #38bdf8;">Initial ₹1,00,000</span>
+                </div>
+                <div class="wallet-val" id="w-cash-balance">₹1,00,000.00</div>
+                <div class="wallet-sub" id="w-invested">Utilized Margin: ₹0.00</div>
+            </div>
+
+            <div class="wallet-card" id="w-pnl-card">
+                <div class="wallet-lbl">
+                    <span>Realized Net P&L</span>
+                    <span id="w-pnl-pct" style="color: #10b981;">0.0%</span>
+                </div>
+                <div class="wallet-val" id="w-realized-pnl" style="color: #10b981;">+₹0.00</div>
+                <div class="wallet-sub" id="w-today-pnl">Today's P&L: ₹0.00</div>
+            </div>
+
+            <div class="wallet-card">
+                <div class="wallet-lbl">
+                    <span>Accuracy & Win Rate</span>
+                    <span style="color: #f59e0b;">Target: 95.1%</span>
+                </div>
+                <div class="wallet-val" id="w-win-rate" style="color: #38bdf8;">0.0%</div>
+                <div class="wallet-sub" id="w-wins-losses">0 Wins / 0 Losses (0 Total)</div>
+            </div>
+
+            <div class="wallet-card">
+                <div class="wallet-lbl">
+                    <span>Daily Discipline Lock</span>
+                    <span style="color: #a855f7;">Golden Rule</span>
+                </div>
+                <div class="wallet-val" id="w-daily-count" style="color: #f8fafc;">0 / 5</div>
+                <div class="wallet-sub">Max 5 A+ Trades / Day to Protect 40k/Wk</div>
+            </div>
+        </div>
+
+        <!-- CONTROL PANEL -->
+        <div class="control-panel">
+            <!-- Card 1: Master ON/OFF Switch -->
+            <div class="control-card">
+                <div>
+                    <div class="card-header">
+                        <div class="card-title">Signal Engine Master</div>
+                        <span id="status-badge" class="status-badge status-on">ONLINE & ACTIVE</span>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">
+                        Master switch band karne par market signals alert pause ho jayenge.
+                    </p>
+                </div>
+                <div class="switch-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="master-switch-input" checked onchange="toggleEngineSwitch(this.checked)">
+                        <span class="slider"></span>
+                    </label>
+                    <span id="switch-label-text" style="font-weight: 700; font-size: 13px; color: #10b981;">Signals Running (ON)</span>
+                </div>
+            </div>
+
+            <!-- Card 2: Auto-Pilot Autonomous Decision Mode -->
+            <div class="control-card">
+                <div>
+                    <div class="card-header">
+                        <div class="card-title">🤖 Auto-Pilot Decision Mode</div>
+                        <span id="auto-badge" class="status-badge status-off">MANUAL CONFIRMATION</span>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 10px;">
+                        <strong>Auto Mode ON:</strong> Signal aane par system confluence <strong>khud verify karega</strong> aur bina click ka wait kiye trade auto-execute karega!
+                    </p>
+                </div>
+                <div class="switch-container">
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="auto-switch-input" onchange="toggleAutoSwitch(this.checked)">
+                        <span class="slider auto-slider"></span>
+                    </label>
+                    <span id="auto-label-text" style="font-weight: 700; font-size: 13px; color: #94a3b8;">Auto Trading is OFF</span>
+                </div>
+            </div>
+
+            <!-- Card 3: Lot Sizing Selector -->
+            <div class="control-card">
+                <div>
+                    <div class="card-header">
+                        <div class="card-title">Trade Lot Multiplier</div>
+                        <span style="font-size: 11px; color: #38bdf8; font-weight: bold;">₹40k Target Sizing</span>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px;">
+                        Order execution quantity:
+                    </p>
+                </div>
+                <div class="lot-buttons">
+                    <button class="lot-btn" onclick="selectLots(1)" id="btn-lot-1">1 Lot (65 Q)</button>
+                    <button class="lot-btn active" onclick="selectLots(2)" id="btn-lot-2">2 Lots (130 Q) ⭐</button>
+                    <button class="lot-btn" onclick="selectLots(3)" id="btn-lot-3">3 Lots (195 Q)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- SIMULATION CONTROLS FOR TESTING -->
+        <div class="sim-toolbar">
+            <span style="font-size: 12px; color: #cbd5e1; font-weight: 700;">🧪 Interactive Live Testing:</span>
+            <button class="sim-btn" onclick="triggerTestSignal('CALL')">🟢 Simulate Buy CE Signal</button>
+            <button class="sim-btn" onclick="triggerTestSignal('PUT')">🔴 Simulate Buy PE Signal</button>
+            <span style="margin-left: auto; font-size: 11px; color: #94a3b8;">(Test signals will be logged with full auditing in your virtual wallet)</span>
+        </div>
+
+        <!-- LIVE SIGNAL ALERT BOX (NOTIFICATION DISPLAY) -->
+        <div class="signal-alert-box" id="active-signal-box">
+            <div class="signal-alert-header">
+                <div>
+                    <span class="signal-type-badge" id="sig-badge">⚡ BUY CALL (CE) READY</span>
+                    <span style="margin-left: 12px; font-weight: 700; color: #cbd5e1; font-size: 13px;" id="sig-time">Timestamp: Loading...</span>
+                </div>
+                <div id="sig-confluence-status" style="font-size: 13px; color: #34d399; font-weight: 700; display: flex; align-items: center; gap: 6px;">
+                    <span>✅ High Confluence Verified (1 ITM Delta 0.65)</span>
+                </div>
+            </div>
+
+            <div class="signal-grid">
+                <div class="sig-item">
+                    <div class="sig-lbl">Contract (1 ITM)</div>
+                    <div class="sig-val" id="sig-contract" style="color: #38bdf8;">NIFTY 24700 CE</div>
+                </div>
+                <div class="sig-item">
+                    <div class="sig-lbl">Entry Price (LTP)</div>
+                    <div class="sig-val" id="sig-ltp">₹146.80</div>
+                </div>
+                <div class="sig-item">
+                    <div class="sig-lbl">Strict Stop Loss</div>
+                    <div class="sig-val" id="sig-sl" style="color: #ef4444;">₹139.30 (-7.5 pts)</div>
+                </div>
+                <div class="sig-item">
+                    <div class="sig-lbl">Breakeven Lock (+3.0)</div>
+                    <div class="sig-val" id="sig-be" style="color: #f59e0b;">₹149.80</div>
+                </div>
+                <div class="sig-item">
+                    <div class="sig-lbl">Target 2 Runner (+12)</div>
+                    <div class="sig-val" id="sig-tgt" style="color: #10b981;">₹158.80+</div>
+                </div>
+                <div class="sig-item">
+                    <div class="sig-lbl">Quantity & Max Risk</div>
+                    <div class="sig-val" id="sig-risk" style="color: #f8fafc;">130 Qty (-₹975)</div>
+                </div>
+            </div>
+
+            <div style="background: rgba(0,0,0,0.3); padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px;">
+                <span style="color: #94a3b8; font-weight: 700;">Weapon Trigger Reason: </span>
+                <span id="sig-reason" style="color: #cbd5e1;">Support at 24700: Put writers added +185,000 OI | 1m Volume Spike 2.8x | Delta 0.65</span>
+            </div>
+
+            <!-- 3 ACTION BUTTONS -->
+            <div class="action-container">
+                <div class="action-title">
+                    <span>⚡ Signal Action Choice:</span>
+                    <span id="action-status-msg" style="color: #38bdf8;">Waiting for action or Auto-Pilot</span>
+                </div>
+                <div class="btn-action-group">
+                    <button class="btn-action btn-execute" id="btn-exec-now" onclick="executeCurrentSignal()">
+                        <span>🚀 Execute Trade</span>
+                    </button>
+                    <button class="btn-action btn-cancel" id="btn-cancel-now" onclick="cancelCurrentSignal()">
+                        <span>❌ Cancel / Dismiss</span>
+                    </button>
+                    <button class="btn-action btn-auto" id="btn-auto-now" onclick="toggleAutoFromSignal()">
+                        <span>🤖 Auto Mode (Khud Decide Kare)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             DETAILED TRADES LEDGER & SELECTION / DELETION SECTION
+        ══════════════════════════════════════════════════════════════ -->
+        <div class="ledger-header-bar" style="flex-wrap: wrap; gap: 12px;">
+            <div class="ledger-title" style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+                <span>📋 Live Trade Ledger</span>
+                <div style="display: inline-flex; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px; gap: 4px;">
+                    <button id="tab-btn-inst" onclick="setLedgerTab('institutional')" style="padding: 6px 14px; border: none; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; background: #38bdf8; color: #090d16; transition: 0.2s;">Institutional (1-2/Day)</button>
+                    <button id="tab-btn-rev" onclick="setLedgerTab('reversal')" style="padding: 6px 14px; border: none; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; background: transparent; color: #94a3b8; transition: 0.2s;">⚡ S/R Reversal Trades</button>
+                </div>
+                <span style="font-size: 12px; color: var(--text-dim); font-weight: normal;" id="trades-count-label">(0 Trades Logged)</span>
+            </div>
+            <div class="bulk-actions-group">
+                <span id="selected-count-label" style="font-size: 12px; color: #38bdf8; font-weight: 700;">0 Selected</span>
+                <button class="btn-delete-selected" id="btn-bulk-delete" onclick="deleteSelectedTrades()" style="display: none;">
+                    🗑️ Delete Selected
+                </button>
+                <div style="display: flex; align-items: center; gap: 6px; background: rgba(15, 23, 42, 0.7); padding: 4px 10px; border-radius: 6px; border: 1px solid #334155;">
+                    <label for="signals-date-filter" style="font-size: 12px; color: #94a3b8; font-weight: 600;">📅 Date:</label>
+                    <input type="date" id="signals-date-filter" onchange="onSignalsDateChanged(this.value)" style="background: transparent; border: 1px solid #475569; color: #fff; border-radius: 4px; padding: 2px 6px; font-size: 12px;">
+                    <button type="button" onclick="clearSignalsDateFilter()" style="padding: 2px 8px; font-size: 11px; background: #1e293b; border: 1px solid #475569; color: #94a3b8; border-radius: 4px; cursor: pointer;">All Dates</button>
+                </div>
+                <button class="btn-export-csv" onclick="exportTradesCSV()" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;" title="Download day-wise or complete trade dossier in CSV">
+                    📥 Export CSV
+                </button>
+                <button class="btn-reset-wallet" id="btn-unlock-limit" onclick="resetDailyLimitConfirm()" style="background: #334155; color: #f8fafc; border: 1px solid #475569; margin-right: 4px;" title="Reset daily 5-trade lock back to 0/5 without clearing ledger">
+                    🔓 Unlock Daily Limit (0/5)
+                </button>
+                <button class="btn-reset-wallet" onclick="resetWalletConfirm()">
+                    🔄 Reset Wallet (Fresh ₹1 Lakh)
+                </button>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="chk-col">
+                            <input type="checkbox" id="chk-select-all" onchange="toggleSelectAll(this.checked)" title="Select All Trades">
+                        </th>
+                        <th>Time (Entry / Exit)</th>
+                        <th>Action & Strike</th>
+                        <th>Spot (Entry / Exit)</th>
+                        <th>Option LTP</th>
+                        <th>9 MA / 21 EMA</th>
+                        <th>OI & OI Chg</th>
+                        <th>Vol & Delta</th>
+                        <th>SL / Target</th>
+                        <th>Realized P&L</th>
+                        <th>Mode & Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="signals-history-tbody">
+                    <tr>
+                        <td colspan="12" style="text-align: center; color: var(--text-dim); padding: 25px;">Loading ledger...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let currentSignalId = null;
+        let isAutoModeActive = false;
+        let audioCtx = null;
+        let selectedTradeIds = new Set();
+        let cachedTrades = [];
+        let selectedSignalsDate = '';
+
+        function onSignalsDateChanged(val) {
+            selectedSignalsDate = val;
+            fetchTrades();
+        }
+
+        function clearSignalsDateFilter() {
+            const inp = document.getElementById('signals-date-filter');
+            if (inp) inp.value = '';
+            selectedSignalsDate = '';
+            fetchTrades();
+        }
+
+        // Audio Alert
+        function playAlertSound(type = 'alert') {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'alert') {
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.15);
+                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.35);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.35);
+                } else if (type === 'execute') {
+                    osc.frequency.setValueAtTime(587.33, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1046.50, audioCtx.currentTime + 0.25);
+                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                    osc.start();
+                    osc.stop(audioCtx.currentTime + 0.4);
+                }
+            } catch (e) {
+                console.log("Audio alert suppressed:", e);
+            }
+        }
+
+        // Toggle Master Engine
+        async function toggleEngineSwitch(isOn) {
+            const res = await fetch('/api/signals/toggle_switch', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({master_switch: isOn})
+            });
+            const data = await res.json();
+            updateMasterSwitchUI(isOn);
+        }
+
+        function updateMasterSwitchUI(isOn, isMarketOpen, marketStatus) {
+            const badge = document.getElementById('status-badge');
+            const lbl = document.getElementById('switch-label-text');
+            const input = document.getElementById('master-switch-input');
+            input.checked = isOn;
+            if (isMarketOpen === false) {
+                badge.className = 'status-badge status-off';
+                badge.innerText = 'MARKET CLOSED';
+                badge.style.background = '#f59e0b';
+                badge.style.color = '#000';
+                lbl.innerText = `Market Closed (${marketStatus || 'Weekend'}) — Safe Mode`;
+                lbl.style.color = '#f59e0b';
+            } else if (isOn) {
+                badge.className = 'status-badge status-on';
+                badge.innerText = 'ONLINE & ACTIVE';
+                badge.style.background = '#10b981';
+                badge.style.color = '#052e16';
+                lbl.innerText = 'Signals Running (ON)';
+                lbl.style.color = '#10b981';
+            } else {
+                badge.className = 'status-badge status-off';
+                badge.innerText = 'OFFLINE (PAUSED)';
+                badge.style.background = '#ef4444';
+                badge.style.color = '#fff';
+                lbl.innerText = 'Signals Paused (OFF)';
+                lbl.style.color = '#ef4444';
+            }
+        }
+
+        // Toggle Auto-Pilot
+        async function toggleAutoSwitch(isAuto) {
+            const res = await fetch('/api/signals/toggle_auto', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({auto_trading: isAuto})
+            });
+            const data = await res.json();
+            updateAutoSwitchUI(isAuto);
+            if (data.signal && data.execution_type === 'AUTO_EXECUTED') {
+                playAlertSound('execute');
+                showSignalData(data.signal);
+            }
+            refreshAll();
+        }
+
+        function updateAutoSwitchUI(isAuto) {
+            isAutoModeActive = isAuto;
+            const badge = document.getElementById('auto-badge');
+            const lbl = document.getElementById('auto-label-text');
+            const input = document.getElementById('auto-switch-input');
+            const btnAuto = document.getElementById('btn-auto-now');
+            
+            input.checked = isAuto;
+            if (isAuto) {
+                badge.className = 'status-badge status-auto';
+                badge.innerText = '🤖 AUTO-PILOT ON';
+                lbl.innerText = 'Auto Trading is ACTIVE';
+                lbl.style.color = '#c084fc';
+                btnAuto.className = 'btn-action btn-auto active-auto';
+                btnAuto.innerHTML = '<span>⚡ Auto Mode ACTIVE (Deciding)</span>';
+            } else {
+                badge.className = 'status-badge status-off';
+                badge.innerText = 'MANUAL CONFIRMATION';
+                lbl.innerText = 'Auto Trading is OFF';
+                lbl.style.color = '#94a3b8';
+                btnAuto.className = 'btn-action btn-auto';
+                btnAuto.innerHTML = '<span>🤖 Auto Mode (Khud Decide Kare)</span>';
+            }
+        }
+
+        async function toggleAutoFromSignal() {
+            await toggleAutoSwitch(!isAutoModeActive);
+        }
+
+        // Select Lots
+        async function selectLots(lots) {
+            document.querySelectorAll('.lot-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`btn-lot-${lots}`).classList.add('active');
+            await fetch('/api/signals/set_lots', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({lots: lots})
+            });
+            const qty = lots * 65;
+            const risk = (7.5 * qty).toFixed(0);
+            document.getElementById('sig-risk').innerText = `${qty} Qty (-₹${risk})`;
+        }
+
+        // Button 1: Execute Trade Manually
+        async function executeCurrentSignal() {
+            const res = await fetch('/api/signals/execute', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({signal_id: currentSignalId, is_auto: false})
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                playAlertSound('execute');
+                document.getElementById('action-status-msg').innerText = `✅ Manually Executed at ${new Date().toLocaleTimeString()}!`;
+                document.getElementById('action-status-msg').style.color = '#10b981';
+                showSignalData(data.signal);
+                refreshAll();
+            } else {
+                alert(data.message || "Execution error");
+            }
+        }
+
+        // Button 2: Cancel / Dismiss
+        async function cancelCurrentSignal() {
+            const res = await fetch('/api/signals/cancel', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({signal_id: currentSignalId})
+            });
+            document.getElementById('action-status-msg').innerText = "Signal Cancelled & Dismissed.";
+            document.getElementById('action-status-msg').style.color = '#ef4444';
+            document.getElementById('active-signal-box').style.opacity = '0.4';
+            setTimeout(refreshAll, 1000);
+        }
+
+        // Simulate Test Signal
+        async function triggerTestSignal(direction) {
+            playAlertSound('alert');
+            const res = await fetch('/api/signals/test_trigger', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({direction: direction})
+            });
+            const data = await res.json();
+            if (data.signal) {
+                showSignalData(data.signal);
+            }
+            refreshAll();
+        }
+
+        // Close or Resolve Trade (Simulate Win / SL)
+        async function resolveTrade(tradeId, outcome) {
+            const res = await fetch('/api/signals/trades/close', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({trade_id: tradeId, outcome: outcome})
+            });
+            const data = await res.json();
+            playAlertSound('execute');
+            refreshAll();
+        }
+
+        // Populate Signal Card UI
+        function showSignalData(sig) {
+            if (!sig) return;
+            currentSignalId = sig.signal_id || sig.trade_id;
+            const box = document.getElementById('active-signal-box');
+            box.style.opacity = '1';
+
+            const isPe = sig.action === 'BUY_PE' || sig.direction === 'PUT';
+            box.className = isPe ? 'signal-alert-box put-signal' : 'signal-alert-box';
+
+            const badge = document.getElementById('sig-badge');
+            badge.className = isPe ? 'signal-type-badge pe' : 'signal-type-badge';
+            badge.innerText = isPe ? '⚡ BUY PUT (PE) SIGNAL' : '⚡ BUY CALL (CE) SIGNAL';
+
+            document.getElementById('sig-time').innerText = `Timestamp: ${sig.timestamp || ''}`;
+            document.getElementById('sig-contract').innerText = sig.contract || 'NIFTY';
+            document.getElementById('sig-ltp').innerText = `₹${sig.entry_ltp?.toFixed(2) || '150.00'}`;
+            document.getElementById('sig-sl').innerText = `₹${sig.stop_loss_price?.toFixed(2) || ''} (-7.5 pts)`;
+            document.getElementById('sig-be').innerText = `₹${sig.target_plan?.breakeven_lock?.toFixed(2) || ''}`;
+            document.getElementById('sig-tgt').innerText = `₹${sig.target_plan?.target_2_runner?.toFixed(2) || ''}+`;
+            document.getElementById('sig-risk').innerText = `${sig.qty || 130} Qty (-₹${sig.max_risk_rupees || 975})`;
+            document.getElementById('sig-reason').innerText = sig.weapon_signature || 'Weapon Confluence Verified with Delta 0.65';
+
+            const statusMsg = document.getElementById('action-status-msg');
+            const confluenceStatus = document.getElementById('sig-confluence-status');
+            const actionGroup = document.querySelector('.btn-action-group');
+
+            if (sig.status === 'AUTO_EXECUTED' || sig.status === 'MANUALLY_EXECUTED') {
+                box.classList.add('auto-executed');
+                const isAuto = (sig.status === 'AUTO_EXECUTED');
+                statusMsg.innerText = `${isAuto ? '🤖 Auto-Pilot Executed' : '✅ Manually Executed'} at ${sig.executed_at || 'Now'} — Trade Running Live!`;
+                statusMsg.style.color = isAuto ? '#c084fc' : '#38bdf8';
+                confluenceStatus.innerHTML = `<span style="color:${isAuto ? '#c084fc' : '#38bdf8'}; font-weight:800;">⚡ POSITION ACTIVE & TRACKING</span>`;
+
+                if (actionGroup) {
+                    actionGroup.innerHTML = `
+                        <button class="btn-action" style="background: #10b981; color: #fff; font-weight: 700;" onclick="resolveTrade('${currentSignalId}', 'TARGET_HIT')">
+                            <span>🎯 Book Target (+12 pts)</span>
+                        </button>
+                        <button class="btn-action" style="background: #ef4444; color: #fff; font-weight: 700;" onclick="resolveTrade('${currentSignalId}', 'SL_HIT')">
+                            <span>🛑 Hit Stop Loss (-7.5 pts)</span>
+                        </button>
+                        <button class="btn-action" style="background: #f59e0b; color: #090d16; font-weight: 700;" onclick="resolveTrade('${currentSignalId}', 'BREAKEVEN')">
+                            <span>🛡️ Breakeven (+3 pts)</span>
+                        </button>
+                        <button class="btn-action" style="background: #334155; color: #f8fafc; font-weight: 700;" onclick="resolveTrade('${currentSignalId}', 'MANUAL_CLOSE')">
+                            <span>⚡ Market Exit (Close)</span>
+                        </button>
+                    `;
+                }
+            } else {
+                box.classList.remove('auto-executed');
+                statusMsg.innerText = 'Waiting for your action: [Execute], [Cancel], or [Auto Mode]';
+                statusMsg.style.color = '#f59e0b';
+                confluenceStatus.innerHTML = '<span style="color:#34d399; font-weight:800;">⚡ ACTION REQUIRED</span>';
+
+                if (actionGroup) {
+                    actionGroup.innerHTML = `
+                        <button class="btn-action btn-execute" id="btn-exec-now" onclick="executeCurrentSignal()">
+                            <span>🚀 Execute Trade</span>
+                        </button>
+                        <button class="btn-action btn-cancel" id="btn-cancel-now" onclick="cancelCurrentSignal()">
+                            <span>❌ Cancel / Dismiss</span>
+                        </button>
+                        <button class="btn-action btn-auto" id="btn-auto-now" onclick="toggleAutoFromSignal()">
+                            <span>🤖 Auto Mode (Khud Decide Kare)</span>
+                        </button>
+                    `;
+                }
+            }
+        }
+
+        // Selection & Bulk Deletion
+        function toggleTradeSelection(tradeId, isChecked) {
+            if (isChecked) {
+                selectedTradeIds.add(tradeId);
+            } else {
+                selectedTradeIds.delete(tradeId);
+            }
+            updateBulkActionsUI();
+        }
+
+        function toggleSelectAll(isChecked) {
+            if (isChecked) {
+                cachedTrades.forEach(t => {
+                    const tid = t.trade_id || t.signal_id;
+                    if (tid) selectedTradeIds.add(tid);
+                });
+            } else {
+                selectedTradeIds.clear();
+            }
+            document.querySelectorAll('.trade-row-chk').forEach(chk => chk.checked = isChecked);
+            updateBulkActionsUI();
+        }
+
+        function updateBulkActionsUI() {
+            const count = selectedTradeIds.size;
+            document.getElementById('selected-count-label').innerText = `${count} Selected`;
+            const btn = document.getElementById('btn-bulk-delete');
+            btn.style.display = count > 0 ? 'inline-flex' : 'none';
+            btn.innerText = `🗑️ Delete Selected (${count})`;
+
+            const selectAllChk = document.getElementById('chk-select-all');
+            if (cachedTrades.length > 0 && selectedTradeIds.size === cachedTrades.length) {
+                selectAllChk.checked = true;
+            } else {
+                selectAllChk.checked = false;
+            }
+        }
+
+        // Reset Wallet Fresh Start with Confirmation
+        async function resetWalletConfirm() {
+            if (!confirm("Are you sure you want to reset your Virtual Wallet to fresh ₹1,00,000?\\n\\nAll active positions and trade records will be cleared.")) return;
+            const res = await fetch('/api/signals/wallet/reset', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({initial_capital: 100000.0})
+            });
+            const data = await res.json();
+            selectedTradeIds.clear();
+            updateBulkActionsUI();
+            refreshAll();
+        }
+
+        async function deleteSelectedTrades() {
+            if (selectedTradeIds.size === 0) return;
+            const ids = Array.from(selectedTradeIds);
+            const res = await fetch('/api/signals/trades/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({trade_ids: ids})
+            });
+            const data = await res.json();
+            selectedTradeIds.clear();
+            updateBulkActionsUI();
+            refreshAll();
+        }
+
+        async function deleteSingleTrade(tradeId) {
+            await fetch('/api/signals/trades/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({trade_ids: [tradeId]})
+            });
+            selectedTradeIds.delete(tradeId);
+            updateBulkActionsUI();
+            refreshAll();
+        }
+
+        function exportTradesCSV() {
+            const d = selectedSignalsDate || (document.getElementById('signals-date-filter') ? document.getElementById('signals-date-filter').value : '');
+            const url = d ? `/api/signals/export_csv?date=${encodeURIComponent(d)}` : '/api/signals/export_csv';
+            window.location.href = url;
+        }
+
+        function toggleTradeDetails(tradeId) {
+            const row = document.getElementById(`details-row-${tradeId}`);
+            if (row) {
+                row.style.display = (row.style.display === 'none' || !row.style.display) ? 'table-row' : 'none';
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // DATA SYNC: WALLET & TRADES HISTORY
+        // ══════════════════════════════════════════════════════════════
+        let lastSeenSigId = null;
+        let latestWallet = null;
+
+        async function refreshAll() {
+            await Promise.all([fetchWallet(), fetchStatus(), fetchTrades()]);
+        }
+
+        async function fetchWallet() {
+            try {
+                const res = await fetch('/api/signals/wallet');
+                const w = await res.json();
+                latestWallet = w;
+                
+                document.getElementById('w-cash-balance').innerText = `₹${(w.cash_balance || 100000).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+                document.getElementById('w-invested').innerText = `Utilized Margin: ₹${(w.utilized_margin || 0).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+                
+                const pnlEl = document.getElementById('w-realized-pnl');
+                const pnlCard = document.getElementById('w-pnl-card');
+                const pnlPct = document.getElementById('w-pnl-pct');
+                const pnl = w.realized_pnl || 0.0;
+                
+                pnlEl.innerText = `${pnl >= 0 ? '+' : ''}₹${pnl.toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+                pnlPct.innerText = `${w.total_pnl_pct >= 0 ? '+' : ''}${w.total_pnl_pct || 0}%`;
+                
+                if (pnl > 0) {
+                    pnlEl.style.color = '#10b981';
+                    pnlCard.className = 'wallet-card pnl-positive';
+                } else if (pnl < 0) {
+                    pnlEl.style.color = '#ef4444';
+                    pnlCard.className = 'wallet-card pnl-negative';
+                } else {
+                    pnlEl.style.color = '#f8fafc';
+                    pnlCard.className = 'wallet-card';
+                }
+
+                const todayPnl = Number(w.today_pnl || 0.0);
+                const todayPnlEl = document.getElementById('w-today-pnl');
+                if (todayPnlEl) {
+                    const sign = todayPnl > 0 ? '+' : (todayPnl < 0 ? '-' : '');
+                    const absVal = Math.abs(todayPnl).toLocaleString('en-IN', {minimumFractionDigits: 2});
+                    todayPnlEl.innerText = `Today's P&L: ${sign}₹${absVal}`;
+                    todayPnlEl.style.color = todayPnl > 0 ? '#10b981' : (todayPnl < 0 ? '#ef4444' : '#94a3b8');
+                }
+                document.getElementById('w-win-rate').innerText = `${w.win_rate || 0}%`;
+                document.getElementById('w-wins-losses').innerText = `${w.win_trades || 0} Wins / ${w.loss_trades || 0} Losses (${w.total_trades || 0} Total)`;
+                const maxDaily = w.max_daily_trades || 5;
+                document.getElementById('w-daily-count').innerText = `${w.daily_trades_taken || 0} / ${maxDaily}`;
+                const unlockBtn = document.getElementById('btn-unlock-limit');
+                if (unlockBtn) {
+                    unlockBtn.innerText = `🔓 Unlock Daily Limit (${w.daily_trades_taken || 0}/${maxDaily})`;
+                }
+            } catch (e) {
+                console.error("Wallet error", e);
+            }
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/signals/status');
+                const state = await res.json();
+                
+                updateMasterSwitchUI(state.master_switch, state.is_market_open, state.market_status);
+                updateAutoSwitchUI(state.auto_trading);
+
+                if (state.lot_size_multiplier) {
+                    document.querySelectorAll('.lot-btn').forEach(b => b.classList.remove('active'));
+                    const b = document.getElementById(`btn-lot-${state.lot_size_multiplier}`);
+                    if (b) b.classList.add('active');
+                }
+
+                if (state.active_signal) {
+                    if (state.active_signal.signal_id !== lastSeenSigId) {
+                        lastSeenSigId = state.active_signal.signal_id;
+                        playAlertSound(state.active_signal.status === 'AUTO_EXECUTED' ? 'execute' : 'alert');
+                    }
+                    showSignalData(state.active_signal);
+                }
+            } catch (e) {
+                console.error("Status error", e);
+            }
+        }
+
+        let currentLedgerTab = 'institutional';
+        async function setLedgerTab(tab) {
+            currentLedgerTab = tab;
+            const btnInst = document.getElementById('tab-btn-inst');
+            const btnRev = document.getElementById('tab-btn-rev');
+            if (tab === 'institutional') {
+                if (btnInst) { btnInst.style.background = '#38bdf8'; btnInst.style.color = '#090d16'; }
+                if (btnRev) { btnRev.style.background = 'transparent'; btnRev.style.color = '#94a3b8'; }
+            } else {
+                if (btnRev) { btnRev.style.background = '#38bdf8'; btnRev.style.color = '#090d16'; }
+                if (btnInst) { btnInst.style.background = 'transparent'; btnInst.style.color = '#94a3b8'; }
+            }
+            await fetchTrades();
+        }
+
+        async function resetDailyLimitConfirm() {
+            try {
+                await fetch('/api/signals/wallet/reset_daily_limit', { method: 'POST' });
+                refreshAll();
+            } catch (e) {
+                console.error("Reset limit error", e);
+            }
+        }
+
+        async function fetchTrades() {
+            try {
+                let trades = [];
+                const dateQuery = selectedSignalsDate ? `?date=${encodeURIComponent(selectedSignalsDate)}` : '';
+                if (currentLedgerTab === 'reversal') {
+                    const res = await fetch(`/api/reversal/trades${dateQuery}`);
+                    const rData = await res.json();
+                    trades = (rData.trades || []).map(t => ({
+                        trade_id: t.trade_id,
+                        signal_id: t.trade_id,
+                        timestamp: t.timestamp,
+                        entry_time: t.timestamp,
+                        exit_time: t.exit_timestamp,
+                        action: t.signal_type,
+                        contract: t.contract,
+                        direction: t.direction,
+                        strike_price: t.strike,
+                        option_type: t.option_type,
+                        entry_spot: t.entry_spot,
+                        exit_spot: t.exit_spot,
+                        entry_ltp: t.entry_price,
+                        exit_ltp: t.exit_price,
+                        stop_loss_price: t.stop_loss_price,
+                        target_price: t.target_price,
+                        pnl_rupees: t.pnl_rupees,
+                        pnl_points: t.pnl_pts,
+                        pnl_pct: t.pnl_pct,
+                        status: t.status,
+                        execution_mode: 'ALGORITHMIC_AUTO'
+                    }));
+                } else {
+                    const res = await fetch(`/api/signals/history${dateQuery}`);
+                    trades = await res.json();
+                }
+                cachedTrades = trades || [];
+                
+                const activePositions = (latestWallet && latestWallet.active_positions) ? latestWallet.active_positions : [];
+                const activeCount = activePositions.length;
+                
+                document.getElementById('trades-count-label').innerText = `(${cachedTrades.length} Closed${activeCount > 0 ? ' + ' + activeCount + ' Running' : ''})`;
+                const tbody = document.getElementById('signals-history-tbody');
+                
+                if (cachedTrades.length === 0 && activeCount === 0) {
+                    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center; color:#64748b; padding:25px;">No trades logged for this category yet!</td></tr>';
+                    return;
+                }
+
+                let html = '';
+
+                // Render Open / Running Positions first
+                if (currentLedgerTab === 'institutional' && activeCount > 0) {
+                    activePositions.forEach(pos => {
+                        const isPe = (pos.action === 'BUY_PE' || String(pos.contract).includes('PE'));
+                        const livePnlRupees = pos.unrealized_rupees || 0.0;
+                        const livePnlPts = pos.unrealized_pts || 0.0;
+                        const pnlColor = livePnlRupees > 0 ? '#10b981' : (livePnlRupees < 0 ? '#ef4444' : '#38bdf8');
+                        const pnlPctLive = pos.entry_ltp ? ((livePnlPts / pos.entry_ltp) * 100).toFixed(1) : '0.0';
+
+                        html += `
+                            <tr style="background: rgba(0, 240, 255, 0.08); border-left: 3px solid #00f0ff;">
+                                <td class="chk-col"><span style="color:#00f0ff; font-weight:bold;">⚡</span></td>
+                                <td>
+                                    <span style="font-size: 11.5px; font-weight: 700; color: #38bdf8;">${pos.entry_time || pos.executed_at || 'Running'}</span>
+                                    <span class="cell-sub" style="color: #00f0ff; font-weight: bold;">⚡ Running Live</span>
+                                </td>
+                                <td>
+                                    <span class="${isPe ? 'tag-sell' : 'tag-buy'}">${pos.action || (isPe ? 'BUY_PE' : 'BUY_CE')}</span>
+                                    <span class="cell-sub" style="font-weight: 700; color: #f8fafc;">${pos.contract}</span>
+                                </td>
+                                <td>
+                                    <span style="font-family: monospace; font-weight: 700;">₹${pos.entry_spot ? Number(pos.entry_spot).toFixed(1) : '-'}</span>
+                                    <span class="cell-sub">Live: <b style="color: #00f0ff;">Tracking</b></span>
+                                </td>
+                                <td>
+                                    <span style="font-family: monospace;">₹${pos.entry_ltp?.toFixed(2)}</span>
+                                    <span class="cell-sub">Live: <b style="color:#00f0ff;">₹${(pos.current_ltp || pos.entry_ltp).toFixed(2)}</b></span>
+                                </td>
+                                <td>
+                                    <span style="font-family: monospace; font-size: 11px;">9MA: ${pos.ma_9 ? Number(pos.ma_9).toFixed(1) : '-'}</span>
+                                    <span class="cell-sub" style="font-family: monospace;">21EMA: ${pos.ema_21 ? Number(pos.ema_21).toFixed(1) : '-'}</span>
+                                </td>
+                                <td>
+                                    <span style="font-family: monospace; font-weight: 600;">${pos.oi ? (Number(pos.oi)/100000).toFixed(1)+'L' : '-'}</span>
+                                    <span class="cell-sub" style="color: #38bdf8;">Chg: ${pos.oi_change ? ((Number(pos.oi_change)>=0?'+':'')+(Number(pos.oi_change)/100000).toFixed(1)+'L') : '-'}</span>
+                                </td>
+                                <td>
+                                    <span style="font-family: monospace;">${pos.volume ? (Number(pos.volume)/1000).toFixed(0)+'k' : '-'} <b style="color:#f59e0b;">(${pos.volume_spike || '2.8x'})</b></span>
+                                    <span class="cell-sub" style="color: #38bdf8;">Δ ${pos.delta !== undefined ? Number(pos.delta).toFixed(2) : '0.65'}</span>
+                                </td>
+                                <td>
+                                    <span style="color:#ef4444; font-family: monospace; font-size: 11px;">SL: ₹${pos.sl_price?.toFixed(1)}</span>
+                                    <span class="cell-sub" style="color:#10b981; font-family: monospace;">TGT: ₹${pos.target_price?.toFixed(1)}</span>
+                                </td>
+                                <td>
+                                    <div style="font-weight: 800; font-family: monospace; color: ${pnlColor}; font-size: 13px;">
+                                        ${livePnlRupees >= 0 ? '+' : ''}₹${livePnlRupees.toFixed(2)}
+                                    </div>
+                                    <span class="cell-sub" style="color: ${pnlColor}; font-weight: 700;">
+                                        ${livePnlPts >= 0 ? '+' : ''}${livePnlPts.toFixed(1)} pts (${pnlPctLive}%)
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="tag-auto">🤖 Auto</span>
+                                    <span class="cell-sub" style="background:rgba(0,240,255,0.2); color:#00f0ff; padding:1px 6px; border-radius:4px; font-weight:700;">RUNNING</span>
+                                </td>
+                                <td>
+                                    <button class="row-action-btn win" title="Book Target (+12 pts)" onclick="resolveTrade('${pos.trade_id}', 'TARGET_HIT')">🎯 +12</button>
+                                    <button class="row-action-btn sl" title="Hit Stop Loss (-7.5 pts)" onclick="resolveTrade('${pos.trade_id}', 'SL_HIT')">🛑 -7.5</button>
+                                    <button class="row-action-btn del" style="background:#ef4444; color:#fff;" title="Close Now" onclick="resolveTrade('${pos.trade_id}', 'MANUAL_CLOSE')">⚡ Exit</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                // Render Closed Trades with full 12 columns
+                html += cachedTrades.slice(-30).reverse().map(item => {
+                    const tid = item.trade_id || item.signal_id;
+                    const isChecked = selectedTradeIds.has(tid);
+                    const isPe = item.action === 'BUY_PE' || item.direction === 'PUT';
+                    const isAuto = item.status === 'AUTO_EXECUTED' || item.execution_mode === 'ALGORITHMIC_AUTO';
+                    
+                    const pnl = item.pnl_rupees || 0.0;
+                    const pnlPts = item.pnl_points || 0.0;
+                    const pnlColor = pnl > 0 ? '#10b981' : (pnl < 0 ? '#ef4444' : '#94a3b8');
+                    const pnlSign = pnlPts >= 0 ? '+' : '';
+                    const pnlPct = item.pnl_pct !== undefined ? Number(item.pnl_pct).toFixed(2) : (item.entry_ltp ? ((pnlPts / item.entry_ltp) * 100).toFixed(2) : '0.00');
+                    const pnlText = pnl !== 0.0 ? `${pnl > 0 ? '+' : ''}₹${pnl.toFixed(2)}` : '-';
+
+                    const entryTimeStr = item.entry_time || item.timestamp || item.executed_at || '-';
+                    const exitTimeStr = item.exit_time ? (item.exit_time.includes(' ') ? item.exit_time.split(' ')[1] : item.exit_time) : '-';
+
+                    return `
+                        <tr>
+                            <td class="chk-col">
+                                <input type="checkbox" class="trade-row-chk" value="${tid}" ${isChecked ? 'checked' : ''} onchange="toggleTradeSelection('${tid}', this.checked)">
+                            </td>
+                            <td>
+                                <div style="font-size: 11.5px; font-weight: 700; color: #f8fafc;">${entryTimeStr}</div>
+                                <span class="cell-sub">Exit: <b style="color:#cbd5e1;">${exitTimeStr}</b></span>
+                            </td>
+                            <td>
+                                <span class="${isPe ? 'tag-sell' : 'tag-buy'}">${item.action || (isPe ? 'BUY_PE' : 'BUY_CE')}</span>
+                                <span class="cell-sub" style="font-weight: 700; color: #f8fafc;">${item.contract || 'NIFTY'}</span>
+                            </td>
+                            <td>
+                                <span style="font-family: monospace; font-weight: 700; color: #f8fafc;">${item.entry_spot ? '₹' + Number(item.entry_spot).toFixed(1) : '-'}</span>
+                                <span class="cell-sub">Exit: ${item.exit_spot ? '₹' + Number(item.exit_spot).toFixed(1) : '-'} ${item.spot_change !== undefined ? '(' + (item.spot_change >= 0 ? '+' : '') + Number(item.spot_change).toFixed(1) + ')' : ''}</span>
+                            </td>
+                            <td>
+                                <span style="font-family: monospace; font-weight: 600;">₹${item.entry_ltp ? Number(item.entry_ltp).toFixed(2) : '-'}</span>
+                                <span class="cell-sub">Exit: ${item.exit_ltp ? '₹' + Number(item.exit_ltp).toFixed(2) : '-'}</span>
+                            </td>
+                            <td>
+                                <span style="font-family: monospace; font-size: 11px;">9MA: ${item.ma_9 ? Number(item.ma_9).toFixed(1) : '-'}</span>
+                                <span class="cell-sub" style="font-family: monospace;">21EMA: ${item.ema_21 ? Number(item.ema_21).toFixed(1) : '-'}</span>
+                            </td>
+                            <td>
+                                <span style="font-family: monospace; font-weight: 600;">${item.oi ? (Number(item.oi) >= 100000 ? (Number(item.oi)/100000).toFixed(1)+'L' : Number(item.oi).toLocaleString('en-IN')) : '-'}</span>
+                                <span class="cell-sub" style="color: #38bdf8;">Chg: ${item.oi_change ? ((Number(item.oi_change)>=0?'+':'') + (Math.abs(Number(item.oi_change)) >= 100000 ? (Number(item.oi_change)/100000).toFixed(1)+'L' : Number(item.oi_change).toLocaleString('en-IN'))) : '-'}</span>
+                            </td>
+                            <td>
+                                <span style="font-family: monospace;">${item.volume ? (Number(item.volume) >= 1000 ? (Number(item.volume)/1000).toFixed(0)+'k' : item.volume) : '-'} <b style="color:#f59e0b;">(${item.volume_spike || '2.8x'})</b></span>
+                                <span class="cell-sub" style="color: #38bdf8;">Δ ${item.delta !== undefined ? Number(item.delta).toFixed(2) : '0.65'}</span>
+                            </td>
+                            <td>
+                                <span style="color:#ef4444; font-family: monospace; font-size: 11px;">SL: ₹${item.stop_loss_price ? Number(item.stop_loss_price).toFixed(1) : '-'}</span>
+                                <span class="cell-sub" style="color:#10b981; font-family: monospace;">TGT: ₹${item.target_price || item.target_plan?.target_2_runner ? Number(item.target_price || item.target_plan?.target_2_runner).toFixed(1) : '-'}</span>
+                            </td>
+                            <td>
+                                <div style="font-weight: 800; font-family: monospace; color: ${pnlColor}; font-size: 13px;">${pnlText}</div>
+                                <span class="cell-sub" style="color: ${pnlColor}; font-weight: 700;">${pnlSign}${pnlPts.toFixed(1)} pts (${pnlSign}${pnlPct}%)</span>
+                            </td>
+                            <td>
+                                <span class="${isAuto ? 'tag-auto' : 'tag-manual'}">${isAuto ? '🤖 Auto' : '👤 Manual'}</span>
+                                <span class="cell-sub" style="font-weight: 700; color: ${item.status?.includes('TARGET') ? '#10b981' : (item.status?.includes('SL') ? '#ef4444' : '#38bdf8')};">${item.status || 'CLOSED'}</span>
+                            </td>
+                            <td>
+                                <button class="row-action-btn" title="View Full Footprint Details" onclick="toggleTradeDetails('${tid}')">🔍</button>
+                                <button class="row-action-btn win" title="Simulate Target 2 Hit (+12 pts)" onclick="resolveTrade('${tid}', 'TARGET_HIT')">🎯 +12</button>
+                                <button class="row-action-btn sl" title="Simulate Stop Loss Hit (-7.5 pts)" onclick="resolveTrade('${tid}', 'SL_HIT')">🛑 -7.5</button>
+                                <button class="row-action-btn del" title="Delete Trade" onclick="deleteSingleTrade('${tid}')">🗑️</button>
+                            </td>
+                        </tr>
+                        <tr id="details-row-${tid}" class="detail-card-row" style="display: none;">
+                            <td colspan="12" style="padding: 10px 16px;">
+                                <div class="detail-box">
+                                    <div>
+                                        <div class="detail-item-title">Weapon Signature / Confluence</div>
+                                        <div class="detail-item-val" style="color: #38bdf8;">${item.weapon_signature || 'SUPPORT_BOUNCE'}</div>
+                                        <div style="font-size: 11.5px; color: #cbd5e1; margin-top: 3px;">${item.weapon_reason || '-'}</div>
+                                    </div>
+                                    <div>
+                                        <div class="detail-item-title">Sizing & Risk Margin</div>
+                                        <div class="detail-item-val">${item.lots || 2} Lots (${item.qty || 130} Qty)</div>
+                                        <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Margin: ₹${(item.margin_utilized || (item.entry_ltp * (item.qty||130))).toLocaleString('en-IN', {minimumFractionDigits:2})} | Max Risk: ₹${(item.max_risk_rupees || (7.5 * (item.qty||130))).toFixed(2)}</div>
+                                    </div>
+                                    <div>
+                                        <div class="detail-item-title">Targets & Trailing Plan</div>
+                                        <div class="detail-item-val" style="color: #10b981;">BE Lock: ₹${item.target_plan?.breakeven_lock || '-'} | Runner: ₹${item.target_plan?.target_2_runner || item.target_price || '-'}</div>
+                                        <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Trade ID: <span style="font-family: monospace; color: #94a3b8;">${tid}</span></div>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+
+                tbody.innerHTML = html;
+            } catch (e) {
+                console.error("Trades ledger error", e);
+            }
+        }
+
+        // Initialize and poll
+        window.addEventListener('DOMContentLoaded', () => {
+            refreshAll();
+            setInterval(refreshAll, 2000);
+        });
+
+        // Initialize AudioContext on first user gesture
+        document.body.addEventListener('click', () => {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }, { once: true });
+    </script>
+</body>
+</html>

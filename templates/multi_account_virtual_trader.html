@@ -1,0 +1,950 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Account Virtual Trading Desk (5 Timeframes & Fyers Emulation)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #060911;
+            --card-bg: rgba(14, 21, 37, 0.75);
+            --card-border: rgba(56, 189, 248, 0.18);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --accent-cyan: #00f0ff;
+            --accent-blue: #38bdf8;
+            --green: #10b981;
+            --red: #ef4444;
+            --gold: #f59e0b;
+            --purple: #a855f7;
+            --pink: #ec4899;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: radial-gradient(circle at 50% 0%, #0c1833 0%, #060911 100%);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            padding: 20px 18px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1450px; margin: 0 auto; }
+
+        /* Top Header Bar */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 24px;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border-radius: 16px;
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            margin-bottom: 20px;
+            box-shadow: 0 10px 35px rgba(0, 0, 0, 0.5);
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .header-title h1 {
+            font-size: 26px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00f0ff, #38bdf8, #10b981);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .header-title p { color: var(--text-dim); font-size: 13px; margin-top: 4px; font-weight: 500; }
+        
+        /* Latency Pill & Nav Buttons */
+        .header-right { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+        .latency-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.35);
+            color: #10b981;
+            padding: 8px 14px;
+            border-radius: 30px;
+            font-size: 12px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .latency-pill:hover { background: rgba(16, 185, 129, 0.25); }
+        .ping-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 10px #10b981;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .nav-btn {
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: #38bdf8;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            text-decoration: none;
+            font-weight: 700;
+            transition: 0.2s;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .nav-btn:hover { background: #0284c7; color: #fff; border-color: #38bdf8; }
+
+        /* Multi-Account Switcher Tabs */
+        .tabs-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+        .tab-btn {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            color: var(--text-dim);
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        .tab-btn:hover { background: rgba(30, 41, 59, 0.9); color: #fff; border-color: rgba(56, 189, 248, 0.3); }
+        .tab-btn.active {
+            background: linear-gradient(135deg, rgba(2, 132, 199, 0.3), rgba(15, 23, 42, 0.9));
+            color: #fff;
+            border-color: #38bdf8;
+            box-shadow: 0 4px 20px rgba(2, 132, 199, 0.35);
+        }
+        .tab-badge {
+            background: #1e293b;
+            color: #94a3b8;
+            padding: 2px 7px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .tab-btn.active .tab-badge { background: #0284c7; color: #fff; }
+
+        /* KPI Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+        .kpi-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 16px 18px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+            opacity: 0.8;
+        }
+        .kpi-lbl {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 0.6px;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+        }
+        .kpi-val {
+            font-size: 24px;
+            font-weight: 800;
+            font-family: 'JetBrains Mono', monospace;
+            margin: 6px 0 2px 0;
+        }
+        .kpi-sub { font-size: 11.5px; color: var(--text-dim); }
+
+        /* Overview Matrix Table */
+        .overview-panel {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+        }
+        .panel-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .panel-head h2 { font-size: 17px; font-weight: 800; color: #fff; }
+
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th {
+            background: rgba(9, 13, 22, 0.8);
+            color: var(--text-dim);
+            text-transform: uppercase;
+            font-size: 10.5px;
+            letter-spacing: 0.6px;
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid var(--card-border);
+        }
+        td {
+            padding: 13px 14px;
+            border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+            color: #f8fafc;
+        }
+        tr:hover td { background: rgba(255, 255, 255, 0.025); }
+
+        .acc-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 800;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .mono { font-family: 'JetBrains Mono', monospace; font-weight: 700; }
+        .text-green { color: var(--green); }
+        .text-red { color: var(--red); }
+        .text-gold { color: var(--gold); }
+        .text-cyan { color: var(--accent-cyan); }
+
+        /* Account Detail Split Workspace */
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: 390px 1fr;
+            gap: 18px;
+            margin-bottom: 24px;
+        }
+        @media (max-width: 1050px) {
+            .workspace-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Order Control Card */
+        .order-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+        }
+        .form-group { display: flex; flex-direction: column; gap: 5px; }
+        .form-lbl {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            display: flex;
+            justify-content: space-between;
+        }
+        .form-input, .form-select {
+            background: #090d16;
+            border: 1px solid #334155;
+            color: #f8fafc;
+            padding: 9px 12px;
+            border-radius: 8px;
+            font-size: 13.5px;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            transition: 0.2s;
+        }
+        .form-input:focus, .form-select:focus { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.2); }
+
+        .lot-pills { display: flex; gap: 8px; }
+        .lot-pill {
+            flex: 1;
+            padding: 8px;
+            background: #1e293b;
+            border: 1px solid #334155;
+            color: var(--text-dim);
+            border-radius: 6px;
+            font-weight: 700;
+            font-size: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .lot-pill.active {
+            background: #0284c7;
+            border-color: #38bdf8;
+            color: #fff;
+        }
+
+        .slider-wrap { display: flex; align-items: center; gap: 10px; }
+        .slider-wrap input[type=range] { flex: 1; accent-color: #38bdf8; }
+        .slider-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            color: #38bdf8;
+            min-width: 45px;
+            text-align: right;
+            font-size: 13px;
+        }
+
+        .order-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 6px; }
+        .btn-ce {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: #fff;
+            border: none;
+            padding: 13px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+        .btn-ce:hover { transform: translateY(-2px); box-shadow: 0 6px 22px rgba(16, 185, 129, 0.5); }
+        .btn-pe {
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+            color: #fff;
+            border: none;
+            padding: 13px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            transition: 0.2s;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+        .btn-pe:hover { transform: translateY(-2px); box-shadow: 0 6px 22px rgba(239, 68, 68, 0.5); }
+
+        /* Action Buttons for Positions */
+        .btn-close {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-close:hover { background: #ef4444; color: #fff; }
+        .btn-be {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border: 1px solid rgba(245, 158, 11, 0.4);
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            margin-right: 6px;
+        }
+        .btn-be:hover { background: #f59e0b; color: #fff; }
+
+        .badge-be {
+            background: rgba(16, 185, 129, 0.2);
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            color: #10b981;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .badge-open {
+            background: rgba(56, 189, 248, 0.2);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            color: #38bdf8;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+
+        /* Friction Audit Tag */
+        .friction-tag {
+            font-size: 11px;
+            color: var(--text-dim);
+            font-family: 'JetBrains Mono', monospace;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+
+    <!-- Top Header -->
+    <div class="header">
+        <div class="header-title">
+            <h1>Multi-Account Virtual Trading Command Center</h1>
+            <p>5 Independent Timeframes (1m, 3m, 5m, 15m, 30m) Concurrently Active | Fyers API Latency & 1.0% Slippage Emulation</p>
+        </div>
+        <div class="header-right">
+            <div class="latency-pill" onclick="runLatencyPing()" title="Click to refresh live Fyers API latency">
+                <span class="ping-dot"></span>
+                <span id="latencyText">Fyers API: 295ms | Total Roundtrip: 489ms</span>
+            </div>
+            <a href="/virtual_trading" class="nav-btn">⚡ Single Trader Desk</a>
+            <a href="/" class="nav-btn">📊 Dashboard</a>
+            <button onclick="resetCurrentAccount()" class="nav-btn" style="color: #ef4444; border-color: rgba(239,68,68,0.4);">🔄 Reset Wallet</button>
+        </div>
+    </div>
+
+    <!-- Account Switcher Tabs -->
+    <div class="tabs-bar">
+        <button class="tab-btn active" onclick="selectTab('ALL')" id="tab_ALL">
+            🌐 All 5 Accounts Overview
+            <span class="tab-badge" id="badge_ALL">5 Active</span>
+        </button>
+        <button class="tab-btn" onclick="selectTab('ACC_1M')" id="tab_ACC_1M">
+            ⚡ 1-Min Scalper
+            <span class="tab-badge" id="badge_ACC_1M">₹1.00L</span>
+        </button>
+        <button class="tab-btn" onclick="selectTab('ACC_3M')" id="tab_ACC_3M">
+            🎯 3-Min Pullback
+            <span class="tab-badge" id="badge_ACC_3M">₹1.00L</span>
+        </button>
+        <button class="tab-btn" onclick="selectTab('ACC_5M')" id="tab_ACC_5M">
+            🚀 5-Min Dynamic Intraday
+            <span class="tab-badge" id="badge_ACC_5M">₹1.00L</span>
+        </button>
+        <button class="tab-btn" onclick="selectTab('ACC_15M')" id="tab_ACC_15M">
+            🛡️ 15-Min S/R Reversal
+            <span class="tab-badge" id="badge_ACC_15M">₹1.00L</span>
+        </button>
+        <button class="tab-btn" onclick="selectTab('ACC_30M')" id="tab_ACC_30M">
+            💎 30-Min Macro Runner
+            <span class="tab-badge" id="badge_ACC_30M">₹1.00L</span>
+        </button>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-lbl">Total Capital <span class="mono">5 Accs</span></div>
+            <div class="kpi-val" id="kpiTotalCapital">₹5,00,000</div>
+            <div class="kpi-sub">₹1,00,000 allocated per timeframe</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-lbl">Combined Net Equity <span class="text-cyan">LIVE</span></div>
+            <div class="kpi-val text-cyan" id="kpiNetEquity">₹5,00,000</div>
+            <div class="kpi-sub" id="kpiUnrealized">Unrealized: ₹0.00</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-lbl">Realized P&L <span class="mono">Total</span></div>
+            <div class="kpi-val" id="kpiRealizedPnL">₹0.00</div>
+            <div class="kpi-sub" id="kpiRoi">ROI: 0.0%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-lbl">Total Trades <span class="mono">Win Rate</span></div>
+            <div class="kpi-val" id="kpiWinRate">0.0%</div>
+            <div class="kpi-sub" id="kpiTradesCount">0 Wins / 0 Losses (0 Total)</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-lbl">Slippage Friction Deducted <span style="color:#f59e0b;">1.0%</span></div>
+            <div class="kpi-val text-gold" id="kpiSlippageDeducted">₹0.00</div>
+            <div class="kpi-sub">Realistic Fyers delay & spread cost</div>
+        </div>
+    </div>
+
+    <!-- TAB 1: ALL ACCOUNTS OVERVIEW -->
+    <div id="view_ALL">
+        <div class="overview-panel">
+            <div class="panel-head">
+                <h2>5-Timeframe Concurrent Accounts Matrix</h2>
+                <div style="font-size: 12px; color: var(--text-dim);">Live Multi-Threaded Execution Engine</div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Account</th>
+                        <th>Strategy & Timeframe</th>
+                        <th>Cash Balance</th>
+                        <th>Net Equity</th>
+                        <th>Lots / Slip%</th>
+                        <th>Realized P&L</th>
+                        <th>Win Rate</th>
+                        <th>Active Positions</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="allAccountsTableBody">
+                    <tr><td colspan="9" style="text-align:center; padding: 25px; color: var(--text-dim);">Loading multi-account status...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- TAB 2: SPECIFIC ACCOUNT DETAIL & TRADING DESK -->
+    <div id="view_SINGLE" style="display: none;">
+        <div class="workspace-grid">
+            
+            <!-- Left Order & Settings Pad -->
+            <div class="order-card">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 id="singleAccTitle" style="font-size: 16px; font-weight: 800; color: #fff;">3-Min Pullback Desk</h3>
+                    <span class="acc-pill" id="singleAccBadge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">ACC_3M</span>
+                </div>
+
+                <!-- Lot Selection -->
+                <div class="form-group">
+                    <label class="form-lbl">Trading Lots (1 Lot = 65 Qty) <span id="lotsQtyLbl" style="color: #38bdf8;">65 Qty</span></label>
+                    <div class="lot-pills">
+                        <div class="lot-pill active" onclick="setLots(1)">1 Lot</div>
+                        <div class="lot-pill" onclick="setLots(2)">2 Lots</div>
+                        <div class="lot-pill" onclick="setLots(3)">3 Lots</div>
+                        <div class="lot-pill" onclick="setLots(4)">4 Lots</div>
+                    </div>
+                </div>
+
+                <!-- Slippage % Slider -->
+                <div class="form-group">
+                    <label class="form-lbl">Fyers Slippage Gap Simulation <span style="color:#f59e0b;" id="slippageValLbl">1.0%</span></label>
+                    <div class="slider-wrap">
+                        <input type="range" id="slippageSlider" min="0.0" max="2.5" step="0.1" value="1.0" oninput="updateSlippageDisplay(this.value)" onchange="saveSlippage(this.value)">
+                        <span class="slider-val" id="slippageVal">1.0%</span>
+                    </div>
+                </div>
+
+                <!-- Manual Test Order Inputs -->
+                <div class="form-group">
+                    <label class="form-lbl">Option Strike (ITM Delta ~0.70)</label>
+                    <input type="number" step="50" id="orderStrike" class="form-input" placeholder="e.g. 24700">
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="form-group">
+                        <label class="form-lbl">Target (pts)</label>
+                        <input type="number" step="0.5" id="orderTargetPts" class="form-input" value="22.0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-lbl">Stop Loss (pts)</label>
+                        <input type="number" step="0.5" id="orderSlPts" class="form-input" value="11.0">
+                    </div>
+                </div>
+
+                <!-- Action Order Buttons -->
+                <div class="order-actions">
+                    <button class="btn-ce" onclick="placeOrder('CALL')">🟢 BUY CE (CALL)</button>
+                    <button class="btn-pe" onclick="placeOrder('PUT')">🔴 BUY PE (PUT)</button>
+                </div>
+
+                <div style="background: rgba(9, 13, 22, 0.6); padding: 12px; border-radius: 8px; border: 1px dashed rgba(255,255,255,0.1); font-size: 11.5px; color: var(--text-dim); line-height: 1.5;">
+                    ⚡ <strong>Execution Simulation:</strong> Orders execute with measured Fyers network ping (~295ms) + OMS & exchange routing (~150ms) + 1.0% slippage gap deduction.
+                </div>
+            </div>
+
+            <!-- Right Active Positions & History Panel -->
+            <div style="display: flex; flex-direction: column; gap: 18px;">
+                
+                <!-- Active Positions -->
+                <div class="overview-panel" style="margin-bottom: 0;">
+                    <div class="panel-head">
+                        <h2>Active Position Telemetry (Break-Even +1.5 pt Lock)</h2>
+                        <span id="activePosCountBadge" class="badge-open">0 Open</span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Contract</th>
+                                <th>Signal vs Fill (Slippage Gap)</th>
+                                <th>Latency</th>
+                                <th>Current LTP</th>
+                                <th>Peak / TSL Stage</th>
+                                <th>Live P&L</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="singleActivePosTableBody">
+                            <tr><td colspan="7" style="text-align:center; padding: 25px; color: var(--text-dim);">No active trade in this account. Bot is waiting for high-conviction signal.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Account Trade Ledger -->
+                <div class="overview-panel">
+                    <div class="panel-head">
+                        <h2>Execution Audit & Trade Ledger</h2>
+                        <span style="font-size: 12px; color: var(--text-dim);" id="tradeLedgerCount">0 Trades</span>
+                    </div>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Contract</th>
+                                <th>Entry (Sig / Fill / Slip)</th>
+                                <th>Exit (Sig / Fill / Reason)</th>
+                                <th>Delays</th>
+                                <th>Friction (Slip + Tax)</th>
+                                <th>Net P&L</th>
+                            </tr>
+                        </thead>
+                        <tbody id="singleTradesTableBody">
+                            <tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--text-dim);">No closed trades yet for this account.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+
+</div>
+
+<script>
+let currentTab = "ALL";
+let currentLots = 1;
+let accountsData = {};
+
+async function fetchOverview() {
+    try {
+        const res = await fetch("/api/multi_trader/overview");
+        const data = await res.json();
+        if (data.status === "ok") {
+            renderOverview(data);
+            if (currentTab !== "ALL") {
+                renderSingleAccountView(currentTab);
+            }
+        }
+    } catch (e) {
+        console.error("Error fetching overview:", e);
+    }
+}
+
+function renderOverview(data) {
+    const c = data.combined;
+    document.getElementById("kpiTotalCapital").innerText = "₹" + Number(c.total_initial_capital).toLocaleString();
+    document.getElementById("kpiNetEquity").innerText = "₹" + Number(c.total_net_equity).toLocaleString();
+    document.getElementById("kpiUnrealized").innerText = "Unrealized: ₹" + (c.total_unrealized_pnl >= 0 ? "+" : "") + Number(c.total_unrealized_pnl).toLocaleString();
+    
+    const pnlEl = document.getElementById("kpiRealizedPnL");
+    pnlEl.innerText = "₹" + (c.total_realized_pnl >= 0 ? "+" : "") + Number(c.total_realized_pnl).toLocaleString();
+    pnlEl.className = "kpi-val " + (c.total_realized_pnl >= 0 ? "text-green" : "text-red");
+    
+    document.getElementById("kpiRoi").innerText = "Combined ROI: " + (c.overall_roi_pct >= 0 ? "+" : "") + c.overall_roi_pct + "%";
+    document.getElementById("kpiWinRate").innerText = c.overall_win_rate + "%";
+    document.getElementById("kpiTradesCount").innerText = `${c.total_wins} Wins / ${c.total_losses} Losses (${c.total_trades} Total)`;
+    document.getElementById("kpiSlippageDeducted").innerText = "₹" + Number(c.total_slippage_friction_paid).toLocaleString();
+
+    // Render Matrix Table
+    const tbody = document.getElementById("allAccountsTableBody");
+    tbody.innerHTML = "";
+    
+    data.accounts.forEach(acc => {
+        accountsData[acc.account_id] = acc;
+        
+        // Update tab badge
+        const badgeEl = document.getElementById(`badge_${acc.account_id}`);
+        if (badgeEl) {
+            badgeEl.innerText = "₹" + (acc.cash_balance / 1000).toFixed(1) + "k";
+        }
+
+        const tr = document.createElement("tr");
+        const pnlColor = acc.realized_pnl >= 0 ? "text-green" : "text-red";
+        tr.innerHTML = `
+            <td>
+                <span class="acc-pill" style="background: ${acc.color}22; color: ${acc.color}; border: 1px solid ${acc.color}55;">
+                    ${acc.account_id}
+                </span>
+            </td>
+            <td>
+                <div style="font-weight: 700; color: #fff;">${acc.name}</div>
+                <div style="font-size: 11px; color: var(--text-dim);">${acc.strategy}</div>
+            </td>
+            <td class="mono">₹${Number(acc.cash_balance).toLocaleString()}</td>
+            <td class="mono ${acc.unrealized_pnl >= 0 ? 'text-green' : 'text-red'}">
+                ₹${Number(acc.net_equity).toLocaleString()}
+                ${acc.unrealized_pnl !== 0 ? `<span style="font-size:10px;">(${acc.unrealized_pnl > 0 ? '+' : ''}${acc.unrealized_pnl})</span>` : ''}
+            </td>
+            <td class="mono">
+                <span style="color:#38bdf8;">${acc.lots} Lot (${acc.lots * 65} Qty)</span><br>
+                <span style="font-size:11px; color:#f59e0b;">Slip: ${acc.slippage_pct}%</span>
+            </td>
+            <td class="mono ${pnlColor}">
+                ₹${acc.realized_pnl >= 0 ? '+' : ''}${Number(acc.realized_pnl).toLocaleString()}
+            </td>
+            <td class="mono">
+                ${acc.win_rate}%
+                <div style="font-size: 10.5px; color: var(--text-dim);">${acc.win_trades}W / ${acc.loss_trades}L</div>
+            </td>
+            <td>
+                ${acc.active_positions_count > 0 
+                    ? `<span class="badge-open">⚡ ${acc.active_positions_count} Open</span>` 
+                    : `<span style="color: var(--text-dim); font-size: 12px;">Idle (Waiting)</span>`}
+            </td>
+            <td>
+                <button class="nav-btn" onclick="selectTab('${acc.account_id}')" style="padding: 5px 10px; font-size: 11px;">
+                    View & Trade ➔
+                </button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function selectTab(tabId) {
+    currentTab = tabId;
+    document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.remove("active"));
+    const activeBtn = document.getElementById(`tab_${tabId}`);
+    if (activeBtn) activeBtn.classList.add("active");
+
+    if (tabId === "ALL") {
+        document.getElementById("view_ALL").style.display = "block";
+        document.getElementById("view_SINGLE").style.display = "none";
+    } else {
+        document.getElementById("view_ALL").style.display = "none";
+        document.getElementById("view_SINGLE").style.display = "block";
+        renderSingleAccountView(tabId);
+    }
+}
+
+async function renderSingleAccountView(accId) {
+    try {
+        const res = await fetch(`/api/multi_trader/account/${accId}`);
+        const data = await res.json();
+        if (data.status !== "ok") return;
+
+        const acc = data.account;
+        const trades = data.trades;
+
+        document.getElementById("singleAccTitle").innerText = acc.name;
+        const badge = document.getElementById("singleAccBadge");
+        badge.innerText = acc.account_id;
+        badge.style.background = (acc.color || "#38bdf8") + "22";
+        badge.style.color = acc.color || "#38bdf8";
+
+        // Set inputs
+        setLots(acc.lots || 1, false);
+        document.getElementById("slippageSlider").value = acc.slippage_pct || 1.0;
+        updateSlippageDisplay(acc.slippage_pct || 1.0);
+        document.getElementById("orderTargetPts").value = acc.target_pts || 20.0;
+        document.getElementById("orderSlPts").value = acc.sl_pts || 10.0;
+
+        // Render Active Positions
+        const posBody = document.getElementById("singleActivePosTableBody");
+        posBody.innerHTML = "";
+        const posList = acc.active_positions || [];
+        document.getElementById("activePosCountBadge").innerText = `${posList.length} Open`;
+
+        if (posList.length === 0) {
+            posBody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 25px; color: var(--text-dim);">No active trade in this account. Bot is waiting for high-conviction signal.</td></tr>`;
+        } else {
+            posList.forEach(p => {
+                const tr = document.createElement("tr");
+                const pnlClass = p.live_pnl_rupees >= 0 ? "text-green" : "text-red";
+                tr.innerHTML = `
+                    <td>
+                        <span class="acc-pill" style="background: ${p.direction === 'CALL' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}; color: ${p.direction === 'CALL' ? '#10b981' : '#ef4444'};">
+                            ${p.contract}
+                        </span>
+                        <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">${p.lots} Lot (${p.qty} Qty)</div>
+                    </td>
+                    <td class="mono">
+                        <div>Sig: ₹${p.theoretical_entry} ➔ <strong>Fill: ₹${p.entry_price}</strong></div>
+                        <div style="font-size: 11px; color: #f59e0b;">Slip Gap: +₹${p.entry_slippage_gap} (-₹${p.entry_slippage_cost})</div>
+                    </td>
+                    <td class="mono text-cyan">${p.entry_latency_ms ? p.entry_latency_ms.toFixed(0) : '480'} ms</td>
+                    <td class="mono" style="font-size: 15px;">₹${p.current_ltp}</td>
+                    <td>
+                        <div style="font-size: 12px; font-weight: 700; color: #fff;">${p.tsl_stage || 'INITIAL'}</div>
+                        <div style="font-size: 11px; color: var(--text-dim);">SL: ₹${p.stop_loss_price} | Tgt: ₹${p.target_price}</div>
+                        ${p.break_even_locked ? `<span class="badge-be">🛡️ Cost Locked (+1.5 pt)</span>` : ''}
+                    </td>
+                    <td class="mono ${pnlClass}" style="font-size: 14px;">
+                        ₹${p.live_pnl_rupees >= 0 ? '+' : ''}${p.live_pnl_rupees}
+                        <div style="font-size: 11px;">(${p.live_pnl_pts >= 0 ? '+' : ''}${p.live_pnl_pts} pts)</div>
+                    </td>
+                    <td>
+                        <button class="btn-be" onclick="trailToCost('${accId}', '${p.trade_id}')">🛡️ Cost Lock</button>
+                        <button class="btn-close" onclick="closeOrder('${accId}', '${p.trade_id}')">⚡ Close</button>
+                    </td>
+                `;
+                posBody.appendChild(tr);
+            });
+        }
+
+        // Render Trades Ledger
+        const trdBody = document.getElementById("singleTradesTableBody");
+        trdBody.innerHTML = "";
+        document.getElementById("tradeLedgerCount").innerText = `${trades.length} Trades`;
+
+        if (trades.length === 0) {
+            trdBody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding: 20px; color: var(--text-dim);">No closed trades yet for this account.</td></tr>`;
+        } else {
+            trades.forEach(t => {
+                const tr = document.createElement("tr");
+                const pnlClass = t.net_pnl_rupees >= 0 ? "text-green" : "text-red";
+                tr.innerHTML = `
+                    <td style="font-size: 11px; color: var(--text-dim);">${t.fill_timestamp ? t.fill_timestamp.substring(11, 19) : ''}</td>
+                    <td>
+                        <span class="mono" style="color: ${t.direction === 'CALL' ? '#10b981' : '#ef4444'}; font-weight: 800;">${t.contract}</span>
+                    </td>
+                    <td class="mono" style="font-size: 11.5px;">
+                        ₹${t.theoretical_entry} ➔ ₹${t.actual_entry}
+                        <span style="color:#f59e0b;">(+₹${t.entry_slippage_gap})</span>
+                    </td>
+                    <td class="mono" style="font-size: 11.5px;">
+                        ₹${t.theoretical_exit} ➔ ₹${t.actual_exit}
+                        <div style="font-size: 10.5px; color: var(--text-dim);">${t.exit_reason}</div>
+                    </td>
+                    <td class="mono" style="font-size: 11px; color: var(--accent-cyan);">
+                        In: ${t.entry_latency_ms ? t.entry_latency_ms.toFixed(0) : '480'}ms<br>
+                        Out: ${t.exit_latency_ms ? t.exit_latency_ms.toFixed(0) : '460'}ms
+                    </td>
+                    <td class="mono friction-tag">
+                        -₹${t.total_slippage_cost}<br>
+                        <span style="font-size: 10px; color: #64748b;">+₹${t.brokerage_and_taxes} tax</span>
+                    </td>
+                    <td class="mono ${pnlClass}" style="font-size: 14px;">
+                        ₹${t.net_pnl_rupees >= 0 ? '+' : ''}${t.net_pnl_rupees}
+                    </td>
+                `;
+                trdBody.appendChild(tr);
+            });
+        }
+
+    } catch (e) {
+        console.error("Error fetching account detail:", e);
+    }
+}
+
+function setLots(lots, save = true) {
+    currentLots = lots;
+    document.querySelectorAll(".lot-pill").forEach((el, idx) => {
+        el.classList.toggle("active", idx + 1 === lots);
+    });
+    document.getElementById("lotsQtyLbl").innerText = `${lots * 65} Qty`;
+    if (save && currentTab !== "ALL") {
+        fetch("/api/multi_trader/settings", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ account_id: currentTab, lots: lots })
+        });
+    }
+}
+
+function updateSlippageDisplay(val) {
+    document.getElementById("slippageVal").innerText = val + "%";
+    document.getElementById("slippageValLbl").innerText = val + "%";
+}
+
+function saveSlippage(val) {
+    if (currentTab !== "ALL") {
+        fetch("/api/multi_trader/settings", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ account_id: currentTab, slippage_pct: parseFloat(val) })
+        });
+    }
+}
+
+async function placeOrder(direction) {
+    if (currentTab === "ALL") {
+        alert("Please select a specific account tab to place order!");
+        return;
+    }
+    const strike = parseFloat(document.getElementById("orderStrike").value) || 0;
+    const targetPts = parseFloat(document.getElementById("orderTargetPts").value) || 20.0;
+    const slPts = parseFloat(document.getElementById("orderSlPts").value) || 10.0;
+
+    const res = await fetch("/api/multi_trader/order/place", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            account_id: currentTab,
+            direction: direction,
+            strike: strike,
+            lots: currentLots,
+            target_pts: targetPts,
+            sl_pts: slPts
+        })
+    });
+    const data = await res.json();
+    alert(data.message);
+    fetchOverview();
+}
+
+async function closeOrder(accId, tradeId) {
+    const res = await fetch("/api/multi_trader/order/close", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ account_id: accId, trade_id: tradeId, outcome: "MANUAL_CLOSE" })
+    });
+    const data = await res.json();
+    alert(data.message);
+    fetchOverview();
+}
+
+async function trailToCost(accId, tradeId) {
+    const res = await fetch("/api/multi_trader/order/trail", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ account_id: accId, trade_id: tradeId })
+    });
+    const data = await res.json();
+    alert(data.message);
+    fetchOverview();
+}
+
+async function resetCurrentAccount() {
+    const target = (currentTab === "ALL") ? "ALL 5 ACCOUNTS" : currentTab;
+    if (!confirm(`Are you sure you want to reset ${target} back to fresh ₹1,00,000 capital?`)) return;
+
+    const res = await fetch("/api/multi_trader/reset", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ account_id: (currentTab === "ALL") ? null : currentTab })
+    });
+    const data = await res.json();
+    alert(data.message);
+    fetchOverview();
+}
+
+async function runLatencyPing() {
+    const el = document.getElementById("latencyText");
+    el.innerText = "Pinging Fyers API...";
+    try {
+        const res = await fetch("/api/multi_trader/benchmark_latency");
+        const data = await res.json();
+        el.innerText = `Fyers API: ${data.fyers_api_ping_ms}ms | Total Roundtrip: ${data.simulated_total_execution_ms}ms (${data.rating})`;
+    } catch (e) {
+        el.innerText = "Fyers API: 295ms | Total Roundtrip: 489ms";
+    }
+}
+
+// Polling every 2.5s for live tick tracking
+setInterval(fetchOverview, 2500);
+fetchOverview();
+</script>
+</body>
+</html>

@@ -1,0 +1,1006 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Desk — Virtual Option Buyer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #060911;
+            --card-bg: rgba(14, 21, 37, 0.85);
+            --card-border: rgba(56, 189, 248, 0.18);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --cyan: #00f0ff;
+            --blue: #38bdf8;
+            --green: #10b981;
+            --green-glow: rgba(16, 185, 129, 0.2);
+            --red: #ef4444;
+            --red-glow: rgba(239, 68, 68, 0.2);
+            --amber: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: radial-gradient(circle at 50% 0%, #0d1e3d 0%, #060911 100%);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            padding: 16px 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1560px; margin: 0 auto; }
+
+        /* Top Header Bar */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 14px 22px;
+            margin-bottom: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+        .brand-section { display: flex; align-items: center; gap: 14px; }
+        .brand-logo {
+            font-size: 20px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00f0ff, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .spot-pill {
+            background: rgba(10, 15, 29, 0.9);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            padding: 6px 14px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+        .pulse-dot {
+            width: 8px; height: 8px; border-radius: 50%; background: #10b981;
+            box-shadow: 0 0 10px #10b981; animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+        .account-bar {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+        }
+        .acc-item { display: flex; flex-direction: column; }
+        .acc-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; }
+        .acc-val { font-size: 15px; font-weight: 800; color: #fff; margin-top: 1px; }
+
+        .btn-action {
+            background: #1e293b;
+            color: #38bdf8;
+            border: 1px solid #334155;
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-action:hover { background: #38bdf8; color: #070a12; }
+        .btn-logout { background: rgba(239, 68, 68, 0.15); border: 1px solid #ef4444; color: #f87171; }
+        .btn-logout:hover { background: #ef4444; color: #fff; }
+
+        /* Workspace Grid */
+        .workspace {
+            display: grid;
+            grid-template-columns: 360px 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        @media (max-width: 1080px) { .workspace { grid-template-columns: 1fr; } }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 18px 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+        .card-title {
+            font-size: 15px;
+            font-weight: 800;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        /* Order Placement Ticket */
+        .dir-switch {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+        .dir-btn {
+            padding: 12px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 800;
+            cursor: pointer;
+            border: 1px solid transparent;
+            text-align: center;
+            transition: 0.2s;
+        }
+        .dir-call {
+            background: rgba(16, 185, 129, 0.15);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.4);
+        }
+        .dir-call.active {
+            background: #10b981;
+            color: #060911;
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.5);
+        }
+        .dir-put {
+            background: rgba(239, 68, 68, 0.15);
+            color: #f87171;
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+        .dir-put.active {
+            background: #ef4444;
+            color: #fff;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.5);
+        }
+
+        .ticket-field { margin-bottom: 14px; }
+        .ticket-field label { display: block; font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 5px; }
+        .ticket-field input, .ticket-field select {
+            width: 100%;
+            background: #090d16;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 9px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+        }
+        .ticket-field input:focus { border-color: var(--cyan); }
+
+        .margin-box {
+            background: rgba(10, 15, 29, 0.8);
+            border: 1px dashed rgba(56, 189, 248, 0.3);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin: 14px 0;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .btn-order {
+            width: 100%;
+            padding: 13px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 800;
+            cursor: pointer;
+            border: none;
+            transition: 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        .btn-order-call {
+            background: linear-gradient(135deg, #059669, #10b981);
+            color: #060911;
+            box-shadow: 0 8px 25px rgba(16, 185, 129, 0.35);
+        }
+        .btn-order-put {
+            background: linear-gradient(135deg, #dc2626, #ef4444);
+            color: #fff;
+            box-shadow: 0 8px 25px rgba(239, 68, 68, 0.35);
+        }
+
+        /* Right Column: Positions & Watchlist */
+        .right-col { display: flex; flex-direction: column; gap: 16px; }
+
+        /* Tables */
+        .table-wrap {
+            overflow-x: auto;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        thead { background: #0b1120; }
+        th {
+            color: var(--text-muted);
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            white-space: nowrap;
+        }
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            white-space: nowrap;
+        }
+        tr:hover td { background: rgba(56, 189, 248, 0.03); }
+
+        .btn-exit {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            color: #f87171;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 700;
+        }
+        .btn-exit:hover { background: #ef4444; color: #fff; }
+        .btn-trail {
+            background: rgba(56, 189, 248, 0.15);
+            border: 1px solid #38bdf8;
+            color: #38bdf8;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            font-weight: 700;
+            margin-right: 4px;
+        }
+        .btn-trail:hover { background: #38bdf8; color: #060911; }
+
+        .strike-pill {
+            cursor: pointer;
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            display: inline-block;
+        }
+        .strike-pill:hover { background: rgba(56, 189, 248, 0.2); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Header -->
+    <div class="header">
+        <div class="brand-section">
+            <div class="brand-logo">⚡ QUANTGINI DESK</div>
+            <div class="spot-pill">
+                <span class="pulse-dot"></span>
+                <span>NIFTY 50:</span>
+                <span id="spotPrice" style="font-weight: 800; color: #fff;">--</span>
+            </div>
+            <div id="roleBadge" style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 4px 8px; border-radius: 6px; font-weight: 700;">USER</div>
+        </div>
+
+        <div class="account-bar">
+            <div class="acc-item">
+                <span class="acc-label">Trader</span>
+                <span id="traderName" class="acc-val" style="color: #38bdf8;">--</span>
+            </div>
+            <div class="acc-item">
+                <span class="acc-label">Cash Balance</span>
+                <span id="cashBalance" class="acc-val">₹0.00</span>
+            </div>
+            <div class="acc-item">
+                <span class="acc-label">Available Margin</span>
+                <span id="availMargin" class="acc-val" style="color: #10b981;">₹0.00</span>
+            </div>
+            <div class="acc-item">
+                <span class="acc-label">Today's P&L</span>
+                <span id="todayPnL" class="acc-val">₹0.00</span>
+            </div>
+            <div class="acc-item">
+                <span class="acc-label">Net Equity</span>
+                <span id="netEquity" class="acc-val">₹0.00</span>
+            </div>
+            <a href="/terminal" class="btn-action" target="_blank">📊 Option Chain (AOC)</a>
+            <a href="/signals" class="btn-action" target="_blank">🎯 Signals Monitor</a>
+            <a href="/api/auth/logout" class="btn-action btn-logout">Logout</a>
+        </div>
+    </div>
+
+    <!-- Market Indicators & Sentiment Bar -->
+    <div class="header" style="padding: 10px 20px; background: rgba(10, 15, 29, 0.75); border-color: rgba(56, 189, 248, 0.12); margin-bottom: 14px;">
+        <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap; font-size: 13px; font-family: 'JetBrains Mono', monospace;">
+            <div><span style="color: var(--text-muted);">ATM STRIKE:</span> <span id="indAtm" style="font-weight: 800; color: var(--cyan);">--</span></div>
+            <div><span style="color: var(--text-muted);">PCR (OI):</span> <span id="indPcr" style="font-weight: 800; color: #fff;">--</span></div>
+            <div><span style="color: var(--text-muted);">SENTIMENT:</span> <span id="indSentiment" style="font-weight: 800; color: #10b981;">BULLISH</span></div>
+            <div><span style="color: var(--text-muted);">SUPPORT:</span> <span id="indSupport" style="font-weight: 800; color: #10b981;">--</span></div>
+            <div><span style="color: var(--text-muted);">RESISTANCE:</span> <span id="indResistance" style="font-weight: 800; color: #ef4444;">--</span></div>
+            <div style="margin-left: auto; font-size: 11px; color: #34d399; display: flex; align-items: center; gap: 6px;">
+                <span>🔒 WALLET & TRADES: PERMANENT (NEVER RESETS ON LOGIN)</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Workspace -->
+    <div class="workspace">
+        <!-- Left: Controls (Manual Order Ticket + Auto-Trading Settings) -->
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+
+            <!-- Auto-Trading Settings Card -->
+            <div class="card" style="border-color: rgba(0, 240, 255, 0.3); background: rgba(10, 19, 36, 0.9);">
+                <div class="card-title">
+                    <span style="display: flex; align-items: center; gap: 8px;">
+                        <span>🤖 Auto-Trading System</span>
+                        <span id="autoStatusBadge" style="font-size: 11px; padding: 2px 8px; border-radius: 12px; background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: 800;">OFF</span>
+                    </span>
+                    <button class="btn-action" style="font-size: 11px; padding: 4px 10px;" onclick="toggleAutoTradeMode()">
+                        Toggle Mode
+                    </button>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div class="ticket-field" style="margin-bottom: 0;">
+                        <label>Auto-Trade Lots</label>
+                        <input type="number" id="autoLotsInput" value="1" min="1" max="25">
+                    </div>
+                    <div class="ticket-field" style="margin-bottom: 0;">
+                        <label>Trade Direction</label>
+                        <select id="autoDirectionSelect">
+                            <option value="BOTH">BOTH (CE & PE)</option>
+                            <option value="CALL">CALL ONLY (CE)</option>
+                            <option value="PUT">PUT ONLY (PE)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div class="ticket-field" style="margin-bottom: 0;">
+                        <label>Target (+Pts)</label>
+                        <input type="number" id="autoTargetInput" value="35.0" step="1.0">
+                    </div>
+                    <div class="ticket-field" style="margin-bottom: 0;">
+                        <label>Stop Loss (-Pts)</label>
+                        <input type="number" id="autoSlInput" value="25.0" step="1.0">
+                    </div>
+                </div>
+
+                <button class="btn-action" style="width: 100%; justify-content: center; background: #0284c7; color: #fff; padding: 8px; border: none; font-size: 12px;" onclick="saveUserSettings()">
+                    💾 Save Auto-Trade Settings
+                </button>
+                <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px; line-height: 1.3;">
+                    * If <strong>OFF</strong>: When algorithm signals fire, an interactive <strong>Execute/Cancel</strong> popup appears. If <strong>ON</strong>: System trades automatically.
+                </div>
+            </div>
+
+            <!-- Manual Order Ticket -->
+            <div class="card">
+                <div class="card-title">
+                    <span>🎯 Manual Order Placement</span>
+                    <span id="contractDisplay" style="font-size: 11px; color: var(--cyan); font-family: 'JetBrains Mono', monospace;">NIFTY -- CE</span>
+                </div>
+
+                <div class="dir-switch">
+                    <button id="btnCall" class="dir-btn dir-call active" onclick="setDirection('CALL')">BUY CALL (CE)</button>
+                    <button id="btnPut" class="dir-btn dir-put" onclick="setDirection('PUT')">BUY PUT (PE)</button>
+                </div>
+
+                <div class="ticket-field">
+                    <label>Select Strike</label>
+                    <select id="strikeSelect" onchange="updateTicketPrice()">
+                        <option value="">Loading strikes...</option>
+                    </select>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="ticket-field">
+                        <label>Lots (65 Qty/Lot)</label>
+                        <input type="number" id="lotInput" value="1" min="1" max="50" onchange="calcMargin()">
+                    </div>
+                    <div class="ticket-field">
+                        <label>Est. Premium (LTP)</label>
+                        <input type="number" id="priceInput" step="0.05" onchange="calcMargin()">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div class="ticket-field">
+                        <label>Target (+Points)</label>
+                        <input type="number" id="targetPtsInput" value="18.0" step="0.5">
+                    </div>
+                    <div class="ticket-field">
+                        <label>Stop Loss (-Points)</label>
+                        <input type="number" id="slPtsInput" value="7.5" step="0.5">
+                    </div>
+                </div>
+
+                <div class="margin-box">
+                    <span style="color: var(--text-muted);">Margin Required:</span>
+                    <span id="marginReqDisplay" style="font-weight: 800; color: #fff;">₹0.00</span>
+                </div>
+
+                <button id="btnExecuteOrder" class="btn-order btn-order-call" onclick="executeOrder()">
+                    <span>Execute Virtual Order</span> &rarr;
+                </button>
+            </div>
+        </div>
+
+        <!-- Right: Active Positions & Option Watchlist -->
+        <div class="right-col">
+            <!-- Active Positions -->
+            <div class="card">
+                <div class="card-title">
+                    <span>⚡ Active Positions</span>
+                    <span id="activeCountBadge" style="font-size: 11px; background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 2px 8px; border-radius: 10px;">0 Open</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Contract</th>
+                                <th>Lots (Qty)</th>
+                                <th>Entry Price</th>
+                                <th>Live LTP</th>
+                                <th>Target</th>
+                                <th>Stop Loss</th>
+                                <th>Floating P&L (₹)</th>
+                                <th>TSL Stage</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="positionsTableBody">
+                            <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No active positions open.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Option Watchlist -->
+            <div class="card">
+                <div class="card-title">
+                    <span>📊 Live Option Watchlist (Nearest ATM Strikes)</span>
+                    <span style="font-size: 11px; color: var(--text-muted);">Click any row to populate ticket</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="color: #34d399;">CALL LTP</th>
+                                <th style="text-align: center;">STRIKE</th>
+                                <th style="color: #f87171; text-align: right;">PUT LTP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="watchlistTableBody">
+                            <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">Loading live strikes...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Closed Trades Ledger & History Filter -->
+    <div class="card">
+        <div class="card-title" style="flex-wrap: wrap; gap: 10px;">
+            <span>📜 Closed Trades Ledger & Persistent History</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <label style="font-size: 11px; color: var(--text-muted);">Filter Date:</label>
+                <input type="date" id="tradeDateFilter" style="background: #090d16; border: 1px solid #334155; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 11px;">
+                <button class="btn-action" style="font-size: 11px; padding: 4px 10px;" onclick="loadTradesWithFilter()">Filter</button>
+                <button class="btn-action" style="font-size: 11px; padding: 4px 10px;" onclick="resetTradeFilter()">Show All</button>
+            </div>
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date & Time</th>
+                        <th>Contract</th>
+                        <th>Lots / Qty</th>
+                        <th>Entry Price</th>
+                        <th>Exit Price</th>
+                        <th>Points P&L</th>
+                        <th>Brokerage</th>
+                        <th>Net Realized P&L</th>
+                        <th>Exit Reason</th>
+                    </tr>
+                </thead>
+                <tbody id="closedTradesBody">
+                    <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No closed trades found.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Interactive Signal Notification Alert Modal (Execute or Cancel) -->
+<div id="signalModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.75); backdrop-filter: blur(8px); z-index: 9999; justify-content: center; align-items: center;">
+    <div style="background: #0f172a; border: 2px solid #00f0ff; box-shadow: 0 0 40px rgba(0, 240, 255, 0.4); border-radius: 18px; max-width: 480px; width: 90%; padding: 24px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 22px;">⚡</span>
+                <span style="font-size: 16px; font-weight: 800; color: #00f0ff;">HIGH CONVICTION SIGNAL</span>
+            </div>
+            <span id="modalTime" style="font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">--:--:--</span>
+        </div>
+
+        <div style="text-align: center; margin-bottom: 20px;">
+            <div id="modalDirectionBadge" style="display: inline-block; padding: 6px 18px; border-radius: 20px; font-size: 15px; font-weight: 900; letter-spacing: 1px; margin-bottom: 10px;">
+                BUY CALL (CE)
+            </div>
+            <div id="modalContract" style="font-size: 20px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace;">
+                NIFTY 24700 CE
+            </div>
+        </div>
+
+        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 14px; margin-bottom: 20px; font-family: 'JetBrains Mono', monospace; font-size: 13px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span style="color: var(--text-muted);">Spot Price:</span>
+                <span id="modalSpot" style="font-weight: 700; color: #fff;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span style="color: var(--text-muted);">Est. Premium:</span>
+                <span id="modalPrice" style="font-weight: 800; color: #00f0ff;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span style="color: var(--text-muted);">Target Price:</span>
+                <span id="modalTarget" style="font-weight: 700; color: #10b981;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+                <span style="color: var(--text-muted);">Stop Loss:</span>
+                <span id="modalSl" style="font-weight: 700; color: #ef4444;">--</span>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            <button id="modalBtnExecute" style="background: linear-gradient(135deg, #059669, #10b981); color: #060911; font-weight: 800; border: none; padding: 12px; border-radius: 10px; font-size: 14px; cursor: pointer;">
+                ✓ EXECUTE TRADE
+            </button>
+            <button id="modalBtnCancel" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #f87171; font-weight: 800; padding: 12px; border-radius: 10px; font-size: 14px; cursor: pointer;">
+                ✕ CANCEL / DISMISS
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentDirection = 'CALL';
+    let marketData = { spot_price: 24700, strikes: [] };
+
+    function setDirection(dir) {
+        currentDirection = dir;
+        document.getElementById('btnCall').className = 'dir-btn dir-call' + (dir === 'CALL' ? ' active' : '');
+        document.getElementById('btnPut').className = 'dir-btn dir-put' + (dir === 'PUT' ? ' active' : '');
+
+        const execBtn = document.getElementById('btnExecuteOrder');
+        execBtn.className = 'btn-order ' + (dir === 'CALL' ? 'btn-order-call' : 'btn-order-put');
+        updateTicketPrice();
+    }
+
+    async function loadMarketData() {
+        try {
+            const res = await fetch('/api/user/market_data');
+            const data = await res.json();
+            if (data.status === 'ok') {
+                marketData = data;
+                document.getElementById('spotPrice').innerText = data.spot_price.toFixed(2);
+
+                const select = document.getElementById('strikeSelect');
+                const prevVal = select.value;
+                select.innerHTML = data.strikes.map(s => `
+                    <option value="${s.strike}" ${s.strike === data.atm_strike ? 'selected' : ''}>
+                        ${s.strike} ${s.strike === data.atm_strike ? '(ATM)' : ''}
+                    </option>
+                `).join('');
+                if (prevVal) select.value = prevVal;
+
+                updateTicketPrice();
+                renderWatchlist(data.strikes, data.atm_strike);
+            }
+        } catch (err) { console.error(err); }
+    }
+
+    function renderWatchlist(strikes, atm) {
+        const tbody = document.getElementById('watchlistTableBody');
+        tbody.innerHTML = strikes.map(s => {
+            const isAtm = s.strike === atm;
+            return `
+                <tr onclick="selectStrikeFromWatchlist(${s.strike})" style="cursor: pointer; ${isAtm ? 'background: rgba(56, 189, 248, 0.08); font-weight: 700;' : ''}">
+                    <td style="color: #34d399;">₹${s.ce_ltp.toFixed(2)}</td>
+                    <td style="text-align: center; color: ${isAtm ? '#00f0ff' : '#fff'}; font-weight: 800;">
+                        ${s.strike} ${isAtm ? '★' : ''}
+                    </td>
+                    <td style="color: #f87171; text-align: right;">₹${s.pe_ltp.toFixed(2)}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function selectStrikeFromWatchlist(stk) {
+        document.getElementById('strikeSelect').value = stk;
+        updateTicketPrice();
+    }
+
+    function updateTicketPrice() {
+        const stk = parseFloat(document.getElementById('strikeSelect').value);
+        if (!stk || !marketData.strikes) return;
+
+        const match = marketData.strikes.find(s => s.strike === stk);
+        if (match) {
+            const ltp = currentDirection === 'CALL' ? match.ce_ltp : match.pe_ltp;
+            document.getElementById('priceInput').value = ltp.toFixed(2);
+            document.getElementById('contractDisplay').innerText = `NIFTY ${stk} ${currentDirection === 'CALL' ? 'CE' : 'PE'}`;
+            calcMargin();
+        }
+    }
+
+    function calcMargin() {
+        const lots = parseInt(document.getElementById('lotInput').value) || 1;
+        const price = parseFloat(document.getElementById('priceInput').value) || 0;
+        const margin = lots * 65 * price;
+        document.getElementById('marginReqDisplay').innerText = '₹' + margin.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    }
+
+    async function executeOrder() {
+        const strike = parseFloat(document.getElementById('strikeSelect').value);
+        const lots = parseInt(document.getElementById('lotInput').value) || 1;
+        const entry_price = parseFloat(document.getElementById('priceInput').value);
+        const target_pts = parseFloat(document.getElementById('targetPtsInput').value);
+        const sl_pts = parseFloat(document.getElementById('slPtsInput').value);
+        const spot_price = marketData.spot_price;
+
+        if (!strike || entry_price <= 0) {
+            alert('Invalid strike or price');
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/user/order/place', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    direction: currentDirection,
+                    strike, lots, entry_price, target_pts, sl_pts, spot_price
+                })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                loadPortfolio();
+            } else {
+                alert('Order Failed: ' + data.message);
+            }
+        } catch (err) { alert('Error: ' + err); }
+    }
+
+    async function exitPosition(tradeId) {
+        if (!confirm('Close this active position now?')) return;
+        try {
+            const res = await fetch('/api/user/order/close', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trade_id: tradeId })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') loadPortfolio();
+            else alert(data.message);
+        } catch (err) { alert(err); }
+    }
+
+    async function trailToCost(tradeId) {
+        try {
+            const res = await fetch('/api/user/order/trail', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ trade_id: tradeId })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') loadPortfolio();
+        } catch (err) { alert(err); }
+    }
+
+    async function loadPortfolio() {
+        try {
+            const res = await fetch('/api/user/portfolio');
+            const data = await res.json();
+            if (data.status !== 'ok') return;
+
+            document.getElementById('traderName').innerText = data.full_name || data.username;
+            document.getElementById('cashBalance').innerText = '₹' + data.cash_balance.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            document.getElementById('availMargin').innerText = '₹' + data.available_margin.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            document.getElementById('netEquity').innerText = '₹' + data.net_equity.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+
+            const todayEl = document.getElementById('todayPnL');
+            todayEl.innerText = (data.today_total_pnl >= 0 ? '+₹' : '₹') + data.today_total_pnl.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            todayEl.style.color = data.today_total_pnl >= 0 ? '#10b981' : '#ef4444';
+
+            // Render Positions
+            const pos = data.active_positions || [];
+            document.getElementById('activeCountBadge').innerText = pos.length + ' Open';
+
+            const posBody = document.getElementById('positionsTableBody');
+            if (pos.length === 0) {
+                posBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No active positions open.</td></tr>';
+            } else {
+                posBody.innerHTML = pos.map(p => `
+                    <tr>
+                        <td style="font-weight: 800; color: ${p.direction === 'CALL' ? '#34d399' : '#f87171'}">${p.contract}</td>
+                        <td>${p.lots} lots (${p.quantity})</td>
+                        <td>₹${p.entry_price.toFixed(2)}</td>
+                        <td style="font-weight: 800;">₹${p.current_ltp.toFixed(2)}</td>
+                        <td style="color: #34d399;">₹${p.target_price.toFixed(2)}</td>
+                        <td style="color: #f87171;">₹${p.stop_loss_price.toFixed(2)}</td>
+                        <td style="font-weight: 900; color: ${p.live_pnl_rupees >= 0 ? '#34d399' : '#f87171'}">
+                            ${p.live_pnl_rupees >= 0 ? '+₹' : '₹'}${p.live_pnl_rupees.toFixed(2)} (${p.live_pnl_pct.toFixed(1)}%)
+                        </td>
+                        <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${p.tsl_stage}</span></td>
+                        <td>
+                            <button class="btn-trail" onclick="trailToCost('${p.trade_id}')">Cost SL</button>
+                            <button class="btn-exit" onclick="exitPosition('${p.trade_id}')">Exit</button>
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            // Render Closed Trades
+            const closed = data.recent_trades || [];
+            const closedBody = document.getElementById('closedTradesBody');
+            if (closed.length === 0) {
+                closedBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No closed trades today.</td></tr>';
+            } else {
+                closedBody.innerHTML = closed.map(t => `
+                    <tr>
+                        <td>${t.exit_timestamp ? t.exit_timestamp.substring(11, 19) : '--'}</td>
+                        <td style="font-weight: 700; color: ${t.direction === 'CALL' ? '#34d399' : '#f87171'}">${t.contract}</td>
+                        <td>${t.lots} (${t.quantity})</td>
+                        <td>₹${t.entry_price.toFixed(2)}</td>
+                        <td>₹${t.exit_price.toFixed(2)}</td>
+                        <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)}</td>
+                        <td style="color: var(--text-muted);">-₹${t.brokerage.toFixed(2)}</td>
+                        <td style="font-weight: 800; color: ${t.net_pnl >= 0 ? '#34d399' : '#f87171'}">
+                            ${t.net_pnl >= 0 ? '+₹' : '₹'}${t.net_pnl.toFixed(2)}
+                        </td>
+                        <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${t.exit_reason}</span></td>
+                    </tr>
+                `).join('');
+            }
+        } catch (err) { console.error(err); }
+    }
+
+    // ── Auto-Trade Settings & Mode Control ─────────────────────────
+    let userSettings = { auto_trade_enabled: 0, lots: 1, trade_direction: 'BOTH', sl_pts: 25.0, target_pts: 35.0 };
+
+    async function loadUserSettings() {
+        try {
+            const res = await fetch('/api/user/settings');
+            const data = await res.json();
+            if (data.status === 'ok' && data.settings) {
+                userSettings = data.settings;
+                document.getElementById('autoLotsInput').value = userSettings.lots || 1;
+                document.getElementById('autoDirectionSelect').value = userSettings.trade_direction || 'BOTH';
+                document.getElementById('autoTargetInput').value = userSettings.target_pts || 35.0;
+                document.getElementById('autoSlInput').value = userSettings.sl_pts || 25.0;
+                updateAutoBadge();
+            }
+        } catch (e) { console.error('Error loading settings:', e); }
+    }
+
+    function updateAutoBadge() {
+        const badge = document.getElementById('autoStatusBadge');
+        if (userSettings.auto_trade_enabled === 1) {
+            badge.innerText = 'ACTIVE (ON)';
+            badge.style.background = 'rgba(16, 185, 129, 0.25)';
+            badge.style.color = '#34d399';
+        } else {
+            badge.innerText = 'OFF (ALERTS ONLY)';
+            badge.style.background = 'rgba(239, 68, 68, 0.25)';
+            badge.style.color = '#f87171';
+        }
+    }
+
+    async function toggleAutoTradeMode() {
+        const nextState = userSettings.auto_trade_enabled === 1 ? 0 : 1;
+        userSettings.auto_trade_enabled = nextState;
+        updateAutoBadge();
+        await saveUserSettings();
+    }
+
+    async function saveUserSettings() {
+        const payload = {
+            auto_trade_enabled: userSettings.auto_trade_enabled,
+            lots: parseInt(document.getElementById('autoLotsInput').value) || 1,
+            trade_direction: document.getElementById('autoDirectionSelect').value,
+            target_pts: parseFloat(document.getElementById('autoTargetInput').value) || 35.0,
+            sl_pts: parseFloat(document.getElementById('autoSlInput').value) || 25.0
+        };
+
+        try {
+            const res = await fetch('/api/user/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                userSettings = payload;
+                updateAutoBadge();
+                alert('Auto-Trading Settings Saved Successfully!');
+            }
+        } catch (e) { alert('Error saving settings: ' + e); }
+    }
+
+    // ── Interactive Signal Alert Popups (Execute or Cancel) ─────────
+    let currentAlert = null;
+
+    function playNotificationSound() {
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.6);
+        } catch (e) {}
+    }
+
+    async function pollPendingAlerts() {
+        try {
+            const res = await fetch('/api/user/alerts/pending');
+            const data = await res.json();
+            if (data.status === 'ok' && data.alerts && data.alerts.length > 0) {
+                const alertItem = data.alerts[0];
+                if (!currentAlert || currentAlert.id !== alertItem.id) {
+                    currentAlert = alertItem;
+                    showSignalModal(alertItem);
+                }
+            } else {
+                if (currentAlert) {
+                    document.getElementById('signalModal').style.display = 'none';
+                    currentAlert = null;
+                }
+            }
+        } catch (e) { console.error('Alert poll error:', e); }
+    }
+
+    function showSignalModal(a) {
+        playNotificationSound();
+        const modal = document.getElementById('signalModal');
+        modal.style.display = 'flex';
+
+        document.getElementById('modalTime').innerText = a.timestamp ? a.timestamp.substring(11, 19) : '--';
+        const badge = document.getElementById('modalDirectionBadge');
+        if (a.direction === 'CALL') {
+            badge.innerText = 'BUY CALL (CE)';
+            badge.style.background = '#10b981';
+            badge.style.color = '#060911';
+        } else {
+            badge.innerText = 'BUY PUT (PE)';
+            badge.style.background = '#ef4444';
+            badge.style.color = '#fff';
+        }
+
+        document.getElementById('modalContract').innerText = a.contract || `NIFTY ${a.strike} ${a.option_type}`;
+        document.getElementById('modalSpot').innerText = a.spot ? a.spot.toFixed(2) : '--';
+        document.getElementById('modalPrice').innerText = '₹' + a.suggested_price.toFixed(2);
+        document.getElementById('modalTarget').innerText = '₹' + a.target_price.toFixed(2);
+        document.getElementById('modalSl').innerText = '₹' + a.sl_price.toFixed(2);
+
+        document.getElementById('modalBtnExecute').onclick = async () => {
+            modal.style.display = 'none';
+            try {
+                const res = await fetch(`/api/user/alerts/${a.id}/execute`, { method: 'POST' });
+                const d = await res.json();
+                if (d.status === 'ok') {
+                    loadPortfolio();
+                    currentAlert = null;
+                } else {
+                    alert('Execution failed: ' + d.message);
+                }
+            } catch (err) { alert('Execution error: ' + err); }
+        };
+
+        document.getElementById('modalBtnCancel').onclick = async () => {
+            modal.style.display = 'none';
+            try {
+                await fetch(`/api/user/alerts/${a.id}/cancel`, { method: 'POST' });
+                currentAlert = null;
+            } catch (err) {}
+        };
+    }
+
+    // ── Live Market Indicators Bar ─────────────────────────────────
+    async function loadMarketAnalysis() {
+        try {
+            const res = await fetch('/api/market/analysis');
+            const data = await res.json();
+            if (data.status === 'ok') {
+                document.getElementById('indAtm').innerText = data.atm_strike;
+                document.getElementById('indPcr').innerText = data.pcr.toFixed(2);
+                const sentEl = document.getElementById('indSentiment');
+                sentEl.innerText = data.sentiment;
+                sentEl.style.color = data.sentiment === 'BULLISH' ? '#10b981' : '#ef4444';
+                document.getElementById('indSupport').innerText = data.support;
+                document.getElementById('indResistance').innerText = data.resistance;
+            }
+        } catch (e) {}
+    }
+
+    // ── Date Filtered Trades Ledger (Persistent Online) ────────────
+    async function loadTradesWithFilter() {
+        const dateVal = document.getElementById('tradeDateFilter').value;
+        try {
+            const url = dateVal ? `/api/user/trades?date=${dateVal}` : '/api/user/trades';
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.status === 'ok') {
+                renderTradesTable(data.trades);
+            }
+        } catch (e) { console.error('Filter trades error:', e); }
+    }
+
+    function resetTradeFilter() {
+        document.getElementById('tradeDateFilter').value = '';
+        loadTradesWithFilter();
+    }
+
+    function renderTradesTable(trades) {
+        const closedBody = document.getElementById('closedTradesBody');
+        if (!trades || trades.length === 0) {
+            closedBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 14px;">No closed trades found for this filter.</td></tr>';
+            return;
+        }
+        closedBody.innerHTML = trades.map(t => `
+            <tr>
+                <td>${t.exit_timestamp ? t.exit_timestamp : t.date}</td>
+                <td style="font-weight: 700; color: ${t.direction === 'CALL' ? '#34d399' : '#f87171'}">${t.contract}</td>
+                <td>${t.lots} (${t.quantity})</td>
+                <td>₹${t.entry_price.toFixed(2)}</td>
+                <td>₹${t.exit_price.toFixed(2)}</td>
+                <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)}</td>
+                <td style="color: var(--text-muted);">-₹${t.brokerage.toFixed(2)}</td>
+                <td style="font-weight: 800; color: ${t.net_pnl >= 0 ? '#34d399' : '#f87171'}">
+                    ${t.net_pnl >= 0 ? '+₹' : '₹'}${t.net_pnl.toFixed(2)}
+                </td>
+                <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${t.exit_reason}</span></td>
+            </tr>
+        `).join('');
+    }
+
+    // Initialize desk
+    loadUserSettings();
+    loadMarketData();
+    loadMarketAnalysis();
+    loadPortfolio();
+    loadTradesWithFilter();
+
+    // Auto-refresh loops
+    setInterval(loadMarketData, 2000);
+    setInterval(loadMarketAnalysis, 5000);
+    setInterval(loadPortfolio, 2000);
+    setInterval(pollPendingAlerts, 2000);
+</script>
+
+</body>
+</html>

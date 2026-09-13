@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Master Admin Control Desk — Virtual Trading Platform</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #070a12;
+            --card-bg: rgba(14, 21, 38, 0.75);
+            --card-border: rgba(56, 189, 248, 0.18);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --cyan: #00f0ff;
+            --blue: #38bdf8;
+            --green: #10b981;
+            --red: #ef4444;
+            --amber: #f59e0b;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: radial-gradient(circle at 50% 0%, #0d1e3d 0%, #070a12 100%);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            padding: 20px 24px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1520px; margin: 0 auto; }
+
+        /* Top Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 16px 24px;
+            margin-bottom: 22px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        .brand h1 {
+            font-size: 22px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00f0ff, #38bdf8, #10b981);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .brand p { color: var(--text-muted); font-size: 12px; margin-top: 3px; font-weight: 500; }
+        .header-actions { display: flex; align-items: center; gap: 12px; }
+
+        .btn-action {
+            background: #1e293b;
+            color: #38bdf8;
+            border: 1px solid #334155;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-action:hover { background: #38bdf8; color: #070a12; }
+        .btn-primary {
+            background: linear-gradient(135deg, #0284c7, #06b6d4);
+            color: #fff;
+            border: none;
+        }
+        .btn-primary:hover { opacity: 0.9; color: #fff; }
+        .btn-logout {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            color: #f87171;
+        }
+        .btn-logout:hover { background: #ef4444; color: #fff; }
+
+        /* KPI Cards Grid */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .kpi-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 14px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        .kpi-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 4px; height: 100%;
+        }
+        .card-cyan::before { background: var(--cyan); }
+        .card-green::before { background: var(--green); }
+        .card-amber::before { background: var(--amber); }
+        .card-blue::before { background: var(--blue); }
+
+        .kpi-label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px; }
+        .kpi-val { font-size: 26px; font-weight: 900; font-family: 'JetBrains Mono', monospace; margin-top: 6px; color: #fff; }
+        .kpi-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+        /* Content Sections */
+        .section-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .section-title { font-size: 16px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+
+        /* Tables */
+        .table-wrap {
+            overflow-x: auto;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        thead { background: #0b1120; }
+        th {
+            color: var(--text-muted);
+            padding: 12px 14px;
+            text-align: left;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        td {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            white-space: nowrap;
+        }
+        tr:hover td { background: rgba(56, 189, 248, 0.04); }
+
+        .badge-active {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid #10b981;
+            color: #34d399;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+        .badge-disabled {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid #ef4444;
+            color: #f87171;
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            transition: 0.2s;
+        }
+        .modal-backdrop.open { opacity: 1; pointer-events: auto; }
+        .modal {
+            background: #0f172a;
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 480px;
+            padding: 28px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+        }
+        .modal h3 { font-size: 18px; font-weight: 800; margin-bottom: 18px; }
+        .modal-field { margin-bottom: 16px; }
+        .modal-field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 6px; }
+        .modal-field input, .modal-field select {
+            width: 100%;
+            background: #070a12;
+            border: 1px solid #334155;
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+        }
+        .modal-btns { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Header -->
+    <div class="header">
+        <div class="brand">
+            <h1>🛡️ MASTER ADMIN CONTROL DESK</h1>
+            <p>Platform Multi-Tenant User Management & Live Risk Monitor</p>
+        </div>
+        <div class="header-actions">
+            <button class="btn-action" style="background: linear-gradient(135deg, #059669, #10b981); color: #060911; font-weight: 800; border: none;" onclick="exportDataToPC()">
+                📥 Send Today's Data to PC (Sync)
+            </button>
+            <a href="/terminal" class="btn-action" target="_blank">📊 Full Option Chain (AOC)</a>
+            <a href="/signals" class="btn-action" target="_blank">🎯 Confluence Signals</a>
+            <button class="btn-action btn-primary" onclick="openCreateUserModal()">➕ Create Demo Account</button>
+            <a href="/trade" class="btn-action" target="_blank">⚡ Open Trading Desk</a>
+            <a href="/api/auth/logout" class="btn-action btn-logout">Logout</a>
+        </div>
+    </div>
+
+    <!-- Platform KPI Scorecards -->
+    <div class="kpi-grid">
+        <div class="kpi-card card-cyan">
+            <div class="kpi-label">Total Registered Users</div>
+            <div id="kpiTotalUsers" class="kpi-val">--</div>
+            <div id="kpiActiveUsers" class="kpi-sub">Active: -- users</div>
+        </div>
+
+        <div class="kpi-card card-blue">
+            <div class="kpi-label">Total Allocated Virtual Capital</div>
+            <div id="kpiTotalCapital" class="kpi-val">₹0.00</div>
+            <div class="kpi-sub">Demo margin across all wallets</div>
+        </div>
+
+        <div class="kpi-card card-green">
+            <div class="kpi-label">Platform Realized P&L</div>
+            <div id="kpiPlatformPnL" class="kpi-val">₹0.00</div>
+            <div id="kpiTotalTrades" class="kpi-sub">Total trades closed: --</div>
+        </div>
+
+        <div class="kpi-card card-amber">
+            <div class="kpi-label">Live Active Positions</div>
+            <div id="kpiLivePositions" class="kpi-val">0</div>
+            <div class="kpi-sub">Currently open in live market</div>
+        </div>
+    </div>
+
+    <!-- Section: User Demo Accounts -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span>👥 Demo User Accounts</span>
+                <span id="userCountBadge" style="font-size: 12px; background: #1e293b; color: #38bdf8; padding: 2px 8px; border-radius: 12px;">--</span>
+            </div>
+            <button class="btn-action" onclick="loadUsers()">↻ Refresh Users</button>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Username</th>
+                        <th>Full Name</th>
+                        <th>Role</th>
+                        <th>Initial Capital</th>
+                        <th>Current Cash</th>
+                        <th>Open Pos</th>
+                        <th>Realized P&L</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="usersTableBody">
+                    <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">Loading users...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Section: Global Live Positions Monitor -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span>⚡ Live Active Positions Across All Traders</span>
+            </div>
+            <span id="posCountBadge" style="font-size: 12px; color: #10b981; font-weight: 700;">● Live Tick Sync Active</span>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Trader</th>
+                        <th>Contract</th>
+                        <th>Lots / Qty</th>
+                        <th>Entry Price</th>
+                        <th>Live LTP</th>
+                        <th>Target</th>
+                        <th>Stop Loss</th>
+                        <th>Floating P&L (₹)</th>
+                        <th>TSL Stage</th>
+                    </tr>
+                </thead>
+                <tbody id="livePositionsBody">
+                    <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No active positions running currently.</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Create New Demo Account -->
+<div id="createUserModal" class="modal-backdrop">
+    <div class="modal">
+        <h3>➕ Create New Demo Trader Account</h3>
+        <form onsubmit="handleCreateUser(event)">
+            <div class="modal-field">
+                <label>Username (Login ID)</label>
+                <input type="text" id="newUsername" placeholder="e.g. rahul_trader" required>
+            </div>
+            <div class="modal-field">
+                <label>Password</label>
+                <input type="password" id="newPassword" placeholder="••••••••" required>
+            </div>
+            <div class="modal-field">
+                <label>Full Name</label>
+                <input type="text" id="newFullName" placeholder="e.g. Rahul Sharma" required>
+            </div>
+            <div class="modal-field">
+                <label>Initial Virtual Capital (₹)</label>
+                <select id="newCapital">
+                    <option value="100000">₹1,00,000 (1 Lakh)</option>
+                    <option value="200000">₹2,00,000 (2 Lakh)</option>
+                    <option value="500000">₹5,00,000 (5 Lakh)</option>
+                    <option value="1000000">₹10,00,000 (10 Lakh)</option>
+                </select>
+            </div>
+            <div class="modal-btns">
+                <button type="button" class="btn-action" onclick="closeCreateUserModal()">Cancel</button>
+                <button type="submit" class="btn-action btn-primary">Create Account</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    function openCreateUserModal() { document.getElementById('createUserModal').classList.add('open'); }
+    function closeCreateUserModal() { document.getElementById('createUserModal').classList.remove('open'); }
+
+    async function handleCreateUser(e) {
+        e.preventDefault();
+        const username = document.getElementById('newUsername').value.trim();
+        const password = document.getElementById('newPassword').value;
+        const full_name = document.getElementById('newFullName').value.trim();
+        const initial_capital = parseFloat(document.getElementById('newCapital').value);
+
+        try {
+            const res = await fetch('/api/admin/users/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password, full_name, initial_capital })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                alert('User created successfully!');
+                closeCreateUserModal();
+                loadUsers();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (err) {
+            alert('Failed to create user: ' + err);
+        }
+    }
+
+    async function toggleStatus(userId) {
+        if (!confirm('Are you sure you want to toggle status for this user?')) return;
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/toggle_status`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'ok') loadUsers();
+        } catch (err) { alert(err); }
+    }
+
+    async function deleteUser(userId) {
+        if (!confirm('Warning: This will delete the user and all their trade history. Proceed?')) return;
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/delete`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'ok') loadUsers();
+        } catch (err) { alert(err); }
+    }
+
+    async function loadUsers() {
+        try {
+            const res = await fetch('/api/admin/users');
+            const data = await res.json();
+            if (data.status !== 'ok') return;
+
+            const users = data.users || [];
+            document.getElementById('kpiTotalUsers').innerText = users.length;
+            document.getElementById('userCountBadge').innerText = users.length + ' Users';
+
+            const active = users.filter(u => u.status === 'active').length;
+            document.getElementById('kpiActiveUsers').innerText = `Active: ${active} users`;
+
+            const totalCap = users.reduce((acc, u) => acc + (u.initial_capital || 0), 0);
+            document.getElementById('kpiTotalCapital').innerText = '₹' + totalCap.toLocaleString('en-IN', { maximumFractionDigits: 0 });
+
+            const totalPnL = users.reduce((acc, u) => acc + (u.realized_pnl || 0), 0);
+            const pnlEl = document.getElementById('kpiPlatformPnL');
+            pnlEl.innerText = (totalPnL >= 0 ? '+₹' : '₹') + totalPnL.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            pnlEl.style.color = totalPnL >= 0 ? '#10b981' : '#ef4444';
+
+            const tbody = document.getElementById('usersTableBody');
+            tbody.innerHTML = users.map(u => `
+                <tr>
+                    <td>#${u.id}</td>
+                    <td style="font-weight: 700; color: #38bdf8;">${u.username}</td>
+                    <td>${u.full_name}</td>
+                    <td><span style="font-size: 11px; padding: 2px 6px; background: #1e293b; border-radius: 4px;">${u.role}</span></td>
+                    <td>₹${(u.initial_capital || 0).toLocaleString('en-IN')}</td>
+                    <td style="font-weight: 700;">₹${(u.cash_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
+                    <td>${u.open_positions_count}</td>
+                    <td style="color: ${u.realized_pnl >= 0 ? '#34d399' : '#f87171'}; font-weight: 700;">
+                        ${u.realized_pnl >= 0 ? '+₹' : '₹'}${u.realized_pnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td><span class="${u.status === 'active' ? 'badge-active' : 'badge-disabled'}">${u.status}</span></td>
+                    <td>
+                        ${u.role !== 'admin' ? `
+                            <button class="btn-action" style="padding: 4px 8px; font-size: 11px;" onclick="toggleStatus(${u.id})">
+                                ${u.status === 'active' ? 'Disable' : 'Enable'}
+                            </button>
+                            <button class="btn-action btn-logout" style="padding: 4px 8px; font-size: 11px;" onclick="deleteUser(${u.id})">
+                                Delete
+                            </button>
+                        ` : '<span style="color: var(--text-muted); font-size: 11px;">Master Admin</span>'}
+                    </td>
+                </tr>
+            `).join('');
+        } catch (err) { console.error(err); }
+    }
+
+    async function loadLivePositions() {
+        try {
+            const res = await fetch('/api/admin/live_positions');
+            const data = await res.json();
+            const pos = data.positions || [];
+            document.getElementById('kpiLivePositions').innerText = pos.length;
+
+            const tbody = document.getElementById('livePositionsBody');
+            if (pos.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 18px;">No active positions running currently.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = pos.map(p => `
+                <tr>
+                    <td style="font-weight: 700; color: #38bdf8;">${p.username}</td>
+                    <td style="font-weight: 700; color: ${p.direction === 'CALL' ? '#34d399' : '#f87171'}">${p.contract}</td>
+                    <td>${p.lots} lots (${p.quantity})</td>
+                    <td>₹${p.entry_price.toFixed(2)}</td>
+                    <td style="font-weight: 700;">₹${p.current_ltp.toFixed(2)}</td>
+                    <td style="color: #34d399;">₹${p.target_price.toFixed(2)}</td>
+                    <td style="color: #f87171;">₹${p.stop_loss_price.toFixed(2)}</td>
+                    <td style="font-weight: 800; color: ${p.live_pnl_rupees >= 0 ? '#34d399' : '#f87171'}">
+                        ${p.live_pnl_rupees >= 0 ? '+₹' : '₹'}${p.live_pnl_rupees.toFixed(2)} (${p.live_pnl_pct.toFixed(1)}%)
+                    </td>
+                    <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${p.tsl_stage}</span></td>
+                </tr>
+            `).join('');
+        } catch (err) { console.error(err); }
+    }
+
+    function exportDataToPC() {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const dateInput = prompt("Enter trading date to export (YYYY-MM-DD):", todayStr);
+        if (!dateInput) return;
+        
+        // Trigger download of the Day's complete ZIP package
+        window.location.href = `/api/admin/export_day_data?date=${dateInput}`;
+    }
+
+    // Auto-refresh loops
+    loadUsers();
+    loadLivePositions();
+    setInterval(loadLivePositions, 2000); // 2s live ticker
+    setInterval(loadUsers, 5000);
+</script>
+
+</body>
+</html>

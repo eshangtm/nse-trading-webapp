@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — NIFTY50 Options Virtual Trading Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #070a12;
+            --card-bg: rgba(14, 21, 38, 0.85);
+            --card-border: rgba(56, 189, 248, 0.22);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --cyan: #00f0ff;
+            --blue: #38bdf8;
+            --green: #10b981;
+            --red: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: radial-gradient(circle at 50% 10%, #0d1e3d 0%, #070a12 100%);
+            color: var(--text-main);
+            font-family: 'Outfit', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .login-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            backdrop-filter: blur(20px);
+            width: 100%;
+            max-width: 440px;
+            padding: 36px 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+            position: relative;
+            overflow: hidden;
+        }
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, var(--cyan), var(--blue), var(--green));
+        }
+        .brand {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .brand h1 {
+            font-size: 26px;
+            font-weight: 900;
+            background: linear-gradient(90deg, #00f0ff, #38bdf8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .brand p {
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-top: 6px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+        .form-control {
+            width: 100%;
+            background: rgba(10, 15, 29, 0.9);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-radius: 10px;
+            color: #fff;
+            padding: 12px 16px;
+            font-size: 14px;
+            font-family: 'JetBrains Mono', monospace;
+            outline: none;
+            transition: 0.2s;
+        }
+        .form-control:focus {
+            border-color: var(--cyan);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.25);
+        }
+        .btn-submit {
+            width: 100%;
+            background: linear-gradient(135deg, #0284c7, #06b6d4);
+            color: #fff;
+            border: none;
+            padding: 13px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 10px;
+            box-shadow: 0 8px 25px rgba(6, 182, 212, 0.35);
+        }
+        .btn-submit:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 30px rgba(6, 182, 212, 0.5);
+        }
+        .error-msg {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid var(--red);
+            color: #fca5a5;
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            display: none;
+        }
+        .demo-credentials {
+            margin-top: 26px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            font-size: 12px;
+            color: var(--text-muted);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .demo-row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 6px;
+            cursor: pointer;
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.03);
+            transition: 0.2s;
+        }
+        .demo-row:hover {
+            background: rgba(56, 189, 248, 0.12);
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+<div class="login-card">
+    <div class="brand">
+        <h1>⚡ QUANTGINI DESK</h1>
+        <p>Multi-User Virtual Trading & S/R Terminal</p>
+    </div>
+
+    <div id="errorAlert" class="error-msg"></div>
+
+    <form id="loginForm" onsubmit="handleLogin(event)">
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="username" class="form-control" placeholder="admin or demo_trader1" required autofocus>
+        </div>
+
+        <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="password" class="form-control" placeholder="••••••••" required>
+        </div>
+
+        <button type="submit" id="submitBtn" class="btn-submit">
+            <span>Login to Terminal</span> &rarr;
+        </button>
+    </form>
+
+    <div class="demo-credentials">
+        <p style="font-weight: 700; color: #cbd5e1; margin-bottom: 6px;">⚡ Quick Login (Click to fill):</p>
+        <div class="demo-row" onclick="fillForm('admin', 'Admin@123')">
+            <span>🛡️ Admin Portal</span>
+            <span style="color: #38bdf8;">admin / Admin@123</span>
+        </div>
+        <div class="demo-row" onclick="fillForm('demo_trader1', 'demo123')">
+            <span>👤 Trader 1 (₹1 Lakh)</span>
+            <span style="color: #10b981;">demo_trader1 / demo123</span>
+        </div>
+        <div class="demo-row" onclick="fillForm('demo_trader2', 'demo123')">
+            <span>👤 Trader 2 (₹2 Lakh)</span>
+            <span style="color: #10b981;">demo_trader2 / demo123</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    function fillForm(u, p) {
+        document.getElementById('username').value = u;
+        document.getElementById('password').value = p;
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+        const errDiv = document.getElementById('errorAlert');
+        const btn = document.getElementById('submitBtn');
+        errDiv.style.display = 'none';
+
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+
+        btn.disabled = true;
+        btn.innerHTML = 'Authenticating...';
+
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+
+            if (data.status === 'ok') {
+                // Redirect based on role
+                if (data.user.role === 'admin') {
+                    window.location.href = '/admin';
+                } else {
+                    window.location.href = '/trade';
+                }
+            } else {
+                errDiv.innerText = data.message || 'Invalid username or password';
+                errDiv.style.display = 'block';
+                btn.disabled = false;
+                btn.innerHTML = '<span>Login to Terminal</span> &rarr;';
+            }
+        } catch (err) {
+            errDiv.innerText = 'Network connection error. Please try again.';
+            errDiv.style.display = 'block';
+            btn.disabled = false;
+            btn.innerHTML = '<span>Login to Terminal</span> &rarr;';
+        }
+    }
+</script>
+
+</body>
+</html>
