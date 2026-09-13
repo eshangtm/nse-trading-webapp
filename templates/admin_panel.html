@@ -287,6 +287,7 @@
                     <tr>
                         <th>ID</th>
                         <th>Username</th>
+                        <th>Password</th>
                         <th>Full Name</th>
                         <th>Role</th>
                         <th>Initial Capital</th>
@@ -298,7 +299,7 @@
                     </tr>
                 </thead>
                 <tbody id="usersTableBody">
-                    <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">Loading users...</td></tr>
+                    <tr><td colspan="11" style="text-align: center; color: var(--text-muted);">Loading users...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -402,6 +403,28 @@
             <button type="button" class="btn-action" onclick="closeTokenModal()">Close</button>
             <button type="button" class="btn-action btn-primary" onclick="saveFyersToken()">Update Token Now</button>
         </div>
+    </div>
+</div>
+
+<!-- Modal: Reset User Password -->
+<div class="modal-backdrop" id="resetPwdModal">
+    <div class="modal" style="max-width: 440px;">
+        <h3>🔑 Change User Password</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+            Set a new login password for: <strong id="resetTargetUsername" style="color: #38bdf8;">--</strong>
+        </p>
+
+        <form onsubmit="handleResetPassword(event)">
+            <input type="hidden" id="resetUserId">
+            <div class="modal-field">
+                <label>New Password</label>
+                <input type="text" id="resetNewPassword" placeholder="Enter new password (e.g. secret123)" required>
+            </div>
+            <div class="modal-btns">
+                <button type="button" class="btn-action" onclick="closeResetPwdModal()">Cancel</button>
+                <button type="submit" class="btn-action btn-primary">Save New Password</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -525,6 +548,12 @@
                 <tr>
                     <td>#${u.id}</td>
                     <td style="font-weight: 700; color: #38bdf8;">${u.username}</td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px;">
+                            <span id="pwd_val_${u.id}" style="color: #94a3b8; font-weight: 600;">••••••••</span>
+                            <button onclick="toggleViewPwd(${u.id}, '${(u.plain_password || 'demo123').replace(/'/g, "\\'")}')" title="Click to View / Hide" style="background: rgba(255,255,255,0.06); border: 1px solid #334155; border-radius: 4px; padding: 2px 6px; cursor: pointer; color: #38bdf8; font-size: 12px;">👁️</button>
+                        </div>
+                    </td>
                     <td>${u.full_name}</td>
                     <td><span style="font-size: 11px; padding: 2px 6px; background: #1e293b; border-radius: 4px;">${u.role}</span></td>
                     <td>₹${(u.initial_capital || 0).toLocaleString('en-IN')}</td>
@@ -535,18 +564,71 @@
                     </td>
                     <td><span class="${u.status === 'active' ? 'badge-active' : 'badge-disabled'}">${u.status}</span></td>
                     <td>
-                        ${u.role !== 'admin' ? `
-                            <button class="btn-action" style="padding: 4px 8px; font-size: 11px;" onclick="toggleStatus(${u.id})">
-                                ${u.status === 'active' ? 'Disable' : 'Enable'}
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            <button class="btn-action" style="padding: 4px 8px; font-size: 11px; color: #fbbf24; border-color: rgba(251, 191, 36, 0.4);" onclick="openResetPwdModal(${u.id}, '${u.username}')">
+                                🔑 Reset
                             </button>
-                            <button class="btn-action btn-logout" style="padding: 4px 8px; font-size: 11px;" onclick="deleteUser(${u.id})">
-                                Delete
-                            </button>
-                        ` : '<span style="color: var(--text-muted); font-size: 11px;">Master Admin</span>'}
+                            ${u.role !== 'admin' ? `
+                                <button class="btn-action" style="padding: 4px 8px; font-size: 11px;" onclick="toggleStatus(${u.id})">
+                                    ${u.status === 'active' ? 'Disable' : 'Enable'}
+                                </button>
+                                <button class="btn-action btn-logout" style="padding: 4px 8px; font-size: 11px;" onclick="deleteUser(${u.id})">
+                                    Delete
+                                </button>
+                            ` : ''}
+                        </div>
                     </td>
                 </tr>
             `).join('');
         } catch (err) { console.error(err); }
+    }
+
+    function toggleViewPwd(id, pwd) {
+        const el = document.getElementById(`pwd_val_${id}`);
+        if (!el) return;
+        if (el.innerText === '••••••••') {
+            el.innerText = pwd || 'N/A';
+            el.style.color = '#34d399';
+        } else {
+            el.innerText = '••••••••';
+            el.style.color = '#94a3b8';
+        }
+    }
+
+    function openResetPwdModal(userId, username) {
+        document.getElementById('resetUserId').value = userId;
+        document.getElementById('resetTargetUsername').innerText = username;
+        document.getElementById('resetNewPassword').value = '';
+        document.getElementById('resetPwdModal').classList.add('open');
+    }
+
+    function closeResetPwdModal() {
+        document.getElementById('resetPwdModal').classList.remove('open');
+    }
+
+    async function handleResetPassword(e) {
+        e.preventDefault();
+        const userId = document.getElementById('resetUserId').value;
+        const newPassword = document.getElementById('resetNewPassword').value.trim();
+        if (!newPassword) return;
+
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/reset_password`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_password: newPassword })
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                alert('Password successfully updated!');
+                closeResetPwdModal();
+                loadUsers();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (err) {
+            alert('Failed to reset password: ' + err);
+        }
     }
 
     async function loadLivePositions() {

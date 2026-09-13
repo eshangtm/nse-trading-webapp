@@ -55,9 +55,14 @@ class UserDatabase:
                     status TEXT NOT NULL DEFAULT 'active', -- 'active' or 'disabled'
                     initial_capital REAL NOT NULL DEFAULT 100000.0,
                     cash_balance REAL NOT NULL DEFAULT 100000.0,
+                    plain_password TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN plain_password TEXT;")
+            except Exception:
+                pass
 
             # 2. User Active Positions table
             conn.execute("""
@@ -175,25 +180,36 @@ class UserDatabase:
                 # Seed Admin
                 pwd_hash, salt = hash_password("Admin@123")
                 cursor.execute("""
-                    INSERT INTO users (username, password_hash, salt, full_name, email, role, status, initial_capital, cash_balance)
-                    VALUES (?, ?, ?, ?, ?, 'admin', 'active', 1000000.0, 1000000.0)
-                """, ("admin", pwd_hash, salt, "Master Administrator", "admin@nseplatform.local"))
+                    INSERT INTO users (username, password_hash, salt, plain_password, full_name, email, role, status, initial_capital, cash_balance)
+                    VALUES (?, ?, ?, ?, ?, ?, 'admin', 'active', 1000000.0, 1000000.0)
+                """, ("admin", pwd_hash, salt, "Admin@123", "Master Administrator", "admin@nseplatform.local"))
 
                 # Seed Demo User 1
                 pwd_hash1, salt1 = hash_password("demo123")
                 cursor.execute("""
-                    INSERT INTO users (username, password_hash, salt, full_name, email, role, status, initial_capital, cash_balance)
-                    VALUES (?, ?, ?, ?, ?, 'user', 'active', 100000.0, 100000.0)
-                """, ("demo_trader1", pwd_hash1, salt1, "Demo Trader 1", "demo1@nseplatform.local"))
+                    INSERT INTO users (username, password_hash, salt, plain_password, full_name, email, role, status, initial_capital, cash_balance)
+                    VALUES (?, ?, ?, ?, ?, ?, 'user', 'active', 100000.0, 100000.0)
+                """, ("demo_trader1", pwd_hash1, salt1, "demo123", "Demo Trader 1", "demo1@nseplatform.local"))
 
                 # Seed Demo User 2
                 pwd_hash2, salt2 = hash_password("demo123")
                 cursor.execute("""
-                    INSERT INTO users (username, password_hash, salt, full_name, email, role, status, initial_capital, cash_balance)
-                    VALUES (?, ?, ?, ?, ?, 'user', 'active', 200000.0, 200000.0)
-                """, ("demo_trader2", pwd_hash2, salt2, "Demo Trader 2", "demo2@nseplatform.local"))
+                    INSERT INTO users (username, password_hash, salt, plain_password, full_name, email, role, status, initial_capital, cash_balance)
+                    VALUES (?, ?, ?, ?, ?, ?, 'user', 'active', 200000.0, 200000.0)
+                """, ("demo_trader2", pwd_hash2, salt2, "demo123", "Demo Trader 2", "demo2@nseplatform.local"))
                 conn.commit()
                 print("Default accounts successfully seeded: admin, demo_trader1, demo_trader2")
+
+            # Backfill existing accounts with plain_password
+            try:
+                cursor.execute("UPDATE users SET plain_password = 'Admin@123' WHERE username = 'admin' AND (plain_password IS NULL OR plain_password = '')")
+                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'demo_trader1' AND (plain_password IS NULL OR plain_password = '')")
+                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'demo_trader2' AND (plain_password IS NULL OR plain_password = '')")
+                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'somd' AND (plain_password IS NULL OR plain_password = '')")
+                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'jimmy' AND (plain_password IS NULL OR plain_password = '')")
+                conn.commit()
+            except Exception:
+                pass
 
     # ══════════════════════════════════════════════════════════════════
     # USER CRUD OPERATIONS
@@ -209,9 +225,9 @@ class UserDatabase:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    INSERT INTO users (username, password_hash, salt, full_name, email, role, status, initial_capital, cash_balance)
-                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)
-                """, (username, pwd_hash, salt, full_name, email, role, initial_capital, initial_capital))
+                    INSERT INTO users (username, password_hash, salt, plain_password, full_name, email, role, status, initial_capital, cash_balance)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+                """, (username, pwd_hash, salt, password, full_name, email, role, initial_capital, initial_capital))
                 conn.commit()
                 user_id = cursor.lastrowid
                 return {
@@ -267,7 +283,7 @@ class UserDatabase:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT u.id, u.username, u.full_name, u.email, u.role, u.status, 
+                SELECT u.id, u.username, u.plain_password, u.full_name, u.email, u.role, u.status, 
                        u.initial_capital, u.cash_balance, u.created_at,
                        COUNT(DISTINCT p.id) as open_positions_count,
                        COUNT(DISTINCT t.id) as total_trades_count,
@@ -279,6 +295,23 @@ class UserDatabase:
                 ORDER BY u.id ASC
             """)
             return [dict(r) for r in cursor.fetchall()]
+
+    def reset_user_password(self, user_id: int, new_password: str) -> Dict[str, Any]:
+        new_password = new_password.strip()
+        if not new_password:
+            return {"status": "error", "message": "Password cannot be empty"}
+        pwd_hash, salt = hash_password(new_password)
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE users 
+                SET password_hash = ?, salt = ?, plain_password = ? 
+                WHERE id = ?
+            """, (pwd_hash, salt, new_password, user_id))
+            conn.commit()
+            if cursor.rowcount == 0:
+                return {"status": "error", "message": "User not found"}
+        return {"status": "ok", "message": "Password updated successfully"}
 
     def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
         with self.get_connection() as conn:

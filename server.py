@@ -506,6 +506,12 @@ def api_admin_delete_user(user_id: int, admin: dict = Depends(require_admin)):
     """Deletes a demo user account and associated trades."""
     return user_db.delete_user(user_id)
 
+@app.post("/api/admin/users/{user_id}/reset_password")
+def api_admin_reset_password(user_id: int, payload: dict, admin: dict = Depends(require_admin)):
+    """Resets or updates a user's password from Admin Desk."""
+    new_password = payload.get("new_password", "").strip()
+    return user_db.reset_user_password(user_id, new_password)
+
 @app.get("/api/admin/live_positions")
 def api_admin_live_positions(admin: dict = Depends(require_admin)):
     """Real-time stream of all open positions across all users."""
