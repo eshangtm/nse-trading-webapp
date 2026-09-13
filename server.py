@@ -540,6 +540,65 @@ def api_sync_today_data(date: Optional[str] = None):
         filename=f"nse_sync_{target_date}.zip"
     )
 
+@app.get("/api/admin/fyers_status")
+def api_admin_fyers_status(admin: dict = Depends(require_admin)):
+    """Returns the live connection status of Fyers data feed."""
+    token_file = os.path.join(BASE_DIR, "fyers_token.json")
+    has_token = os.path.exists(token_file)
+    token_time = None
+    if has_token:
+        try:
+            token_time = datetime.fromtimestamp(os.path.getmtime(token_file)).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+    connected, reason = collector.is_fyers_connected()
+    return {
+        "status": "ok",
+        "has_token": has_token,
+        "connected": connected,
+        "reason": reason,
+        "token_last_updated": token_time
+    }
+
+@app.post("/api/admin/update_fyers_token")
+def api_admin_update_fyers_token(payload: dict, admin: dict = Depends(require_admin)):
+    """Updates the Fyers access token from Admin Desk."""
+    token = payload.get("access_token", "").strip()
+    client_id = payload.get("client_id", "2YMMMGEFE5-100").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="access_token is required")
+    
+    token_file = os.path.join(BASE_DIR, "fyers_token.json")
+    with open(token_file, "w") as f:
+        json.dump({"client_id": client_id, "access_token": token}, f)
+    
+    try:
+        collector._init_fyers()
+    except Exception:
+        pass
+    
+    return {"status": "ok", "message": "Fyers token updated! Live market ticks activated."}
+
+@app.post("/api/sync/push_fyers_token")
+def api_sync_push_token(payload: dict):
+    """Auto-synced by PC's 1_Login.bat every morning."""
+    token = payload.get("access_token", "").strip()
+    client_id = payload.get("client_id", "2YMMMGEFE5-100").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="access_token is required")
+    
+    token_file = os.path.join(BASE_DIR, "fyers_token.json")
+    with open(token_file, "w") as f:
+        json.dump({"client_id": client_id, "access_token": token}, f)
+    
+    try:
+        collector._init_fyers()
+    except Exception:
+        pass
+    
+    return {"status": "ok", "message": "Fyers token synced to cloud successfully!"}
+
+
 
 # ══════════════════════════════════════════════════════════════════
 # SERVER STARTUP HELPER

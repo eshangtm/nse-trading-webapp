@@ -230,6 +230,9 @@
             <p>Platform Multi-Tenant User Management & Live Risk Monitor</p>
         </div>
         <div class="header-actions">
+            <button class="btn-action" style="background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24;" onclick="openTokenModal()">
+                🔑 Fyers Token
+            </button>
             <button class="btn-action" style="background: linear-gradient(135deg, #059669, #10b981); color: #060911; font-weight: 800; border: none;" onclick="exportDataToPC()">
                 📥 Send Today's Data to PC (Sync)
             </button>
@@ -367,7 +370,88 @@
     </div>
 </div>
 
+<!-- Modal: Fyers Daily Token -->
+<div class="modal-backdrop" id="tokenModal">
+    <div class="modal" style="max-width: 520px;">
+        <h3>🔑 Fyers Market Feed Token</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 18px;">
+            Live market ticks aur Option Chain feed connect karne ke liye Fyers access token.
+        </p>
+        
+        <div style="background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; padding: 12px 16px; border-radius: 10px; margin-bottom: 18px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">FEED STATUS:</span>
+                <span id="fyersFeedBadge" style="font-size: 12px; font-weight: 800; color: #f87171;">Checking...</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">LAST UPDATED:</span>
+                <span id="fyersLastUpdated" style="font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #38bdf8;">--</span>
+            </div>
+        </div>
+
+        <div class="modal-field">
+            <label>Paste New Access Token (Daily Morning)</label>
+            <textarea id="tokenInput" rows="4" style="width: 100%; background: #070a12; border: 1px solid #334155; color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 12px; font-family: 'JetBrains Mono', monospace; outline: none; resize: vertical;" placeholder="Paste access_token here..."></textarea>
+        </div>
+
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 18px; line-height: 1.5; background: rgba(56, 189, 248, 0.08); padding: 10px; border-radius: 8px; border: 1px dashed rgba(56, 189, 248, 0.3);">
+            💡 <strong>Automatic Tip:</strong> Jab aap apne PC par <code>1_Login.bat</code> chalayenge, to token automatically is cloud server par push ho jayega!
+        </div>
+
+        <div class="modal-btns">
+            <button type="button" class="btn-action" onclick="closeTokenModal()">Close</button>
+            <button type="button" class="btn-action btn-primary" onclick="saveFyersToken()">Update Token Now</button>
+        </div>
+    </div>
+</div>
+
 <script>
+    function openTokenModal() {
+        document.getElementById('tokenModal').classList.add('open');
+        checkFyersStatus();
+    }
+    function closeTokenModal() {
+        document.getElementById('tokenModal').classList.remove('open');
+    }
+    async function checkFyersStatus() {
+        try {
+            const res = await fetch('/api/admin/fyers_status');
+            const d = await res.json();
+            const badge = document.getElementById('fyersFeedBadge');
+            const lastUp = document.getElementById('fyersLastUpdated');
+            if (d.connected) {
+                badge.innerHTML = '<span style="color: #34d399;">🟢 LIVE CONNECTED</span>';
+            } else {
+                badge.innerHTML = '<span style="color: #f87171;">🔴 OFFLINE / EXPIRED</span>';
+            }
+            lastUp.innerText = d.token_last_updated || 'No token found';
+        } catch (e) {
+            console.error(e);
+        }
+    }
+    async function saveFyersToken() {
+        const token = document.getElementById('tokenInput').value.trim();
+        if (!token) { alert('Please paste access_token!'); return; }
+        try {
+            const res = await fetch('/api/admin/update_fyers_token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ access_token: token })
+            });
+            const d = await res.json();
+            if (d.status === 'ok') {
+                alert('Fyers Token updated successfully! Market data feed is now active.');
+                document.getElementById('tokenInput').value = '';
+                checkFyersStatus();
+                closeTokenModal();
+            } else {
+                alert('Error: ' + (d.message || d.detail));
+            }
+        } catch (err) {
+            alert('Failed to save token: ' + err);
+        }
+    }
+
     function openCreateUserModal() { document.getElementById('createUserModal').classList.add('open'); }
     function closeCreateUserModal() { document.getElementById('createUserModal').classList.remove('open'); }
 
