@@ -313,6 +313,60 @@ class UserDatabase:
                 return {"status": "error", "message": "User not found"}
         return {"status": "ok", "message": "Password updated successfully"}
 
+    def update_user_profile(self, user_id: int, username: Optional[str] = None, 
+                            full_name: Optional[str] = None, 
+                            new_password: Optional[str] = None, 
+                            capital: Optional[float] = None) -> Dict[str, Any]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            user = cursor.fetchone()
+            if not user:
+                return {"status": "error", "message": "User not found"}
+            
+            updates = []
+            params = []
+            
+            if username:
+                clean_u = username.strip().lower()
+                if clean_u != user["username"]:
+                    cursor.execute("SELECT id FROM users WHERE username = ? AND id != ?", (clean_u, user_id))
+                    if cursor.fetchone():
+                        return {"status": "error", "message": f"Username '{clean_u}' is already taken by another account"}
+                    updates.append("username = ?")
+                    params.append(clean_u)
+            
+            if full_name and full_name.strip():
+                updates.append("full_name = ?")
+                params.append(full_name.strip())
+                
+            if new_password and new_password.strip():
+                pwd_hash, salt = hash_password(new_password.strip())
+                updates.append("password_hash = ?")
+                params.append(pwd_hash)
+                updates.append("salt = ?")
+                params.append(salt)
+                updates.append("plain_password = ?")
+                params.append(new_password.strip())
+                
+            if capital is not None and capital >= 0 and user["role"] != "admin":
+                updates.append("initial_capital = ?")
+                params.append(float(capital))
+                updates.append("cash_balance = ?")
+                params.append(float(capital))
+                
+            if not updates:
+                return {"status": "ok", "message": "No changes made"}
+                
+            params.append(user_id)
+            sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(sql, tuple(params))
+            conn.commit()
+            
+            cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+            updated = dict(cursor.fetchone())
+            return {"status": "ok", "message": "User details successfully updated", "user": updated}
+
     def get_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
         with self.get_connection() as conn:
             cursor = conn.cursor()

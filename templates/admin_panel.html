@@ -230,6 +230,9 @@
             <p>Platform Multi-Tenant User Management & Live Risk Monitor</p>
         </div>
         <div class="header-actions">
+            <button class="btn-action" style="background: rgba(168, 85, 247, 0.2); border: 1px solid #a855f7; color: #d8b4fe;" onclick="openEditMyProfileModal()">
+                ⚙️ My Admin Profile
+            </button>
             <button class="btn-action" style="background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24;" onclick="openTokenModal()">
                 🔑 Fyers Token
             </button>
@@ -428,6 +431,46 @@
     </div>
 </div>
 
+<!-- Modal: Edit User & Admin Profile -->
+<div class="modal-backdrop" id="editUserModal">
+    <div class="modal" style="max-width: 480px;">
+        <h3>✏️ Edit Account Profile & Credentials</h3>
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 18px;">
+            Change username, display name, password, or margin.
+        </p>
+
+        <form onsubmit="handleSaveUserProfile(event)">
+            <input type="hidden" id="editUserId">
+            <input type="hidden" id="editIsAdmin">
+
+            <div class="modal-field">
+                <label>Username (Login ID)</label>
+                <input type="text" id="editUsername" required autocomplete="off">
+            </div>
+
+            <div class="modal-field">
+                <label>Full Name / Display Name</label>
+                <input type="text" id="editFullName" required autocomplete="off">
+            </div>
+
+            <div class="modal-field">
+                <label>New Password (Leave blank to keep unchanged)</label>
+                <input type="text" id="editNewPassword" placeholder="Enter new password (optional)">
+            </div>
+
+            <div class="modal-field" id="editCapitalField">
+                <label>Virtual Capital / Margin Balance (₹)</label>
+                <input type="number" id="editCapital" step="1000" min="10000">
+            </div>
+
+            <div class="modal-btns">
+                <button type="button" class="btn-action" onclick="closeEditUserModal()">Cancel</button>
+                <button type="submit" class="btn-action btn-primary">💾 Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
     function openTokenModal() {
         document.getElementById('tokenModal').classList.add('open');
@@ -529,6 +572,7 @@
             if (data.status !== 'ok') return;
 
             const users = data.users || [];
+            globalUsersList = users;
             document.getElementById('kpiTotalUsers').innerText = users.length;
             document.getElementById('userCountBadge').innerText = users.length + ' Users';
 
@@ -565,6 +609,9 @@
                     <td><span class="${u.status === 'active' ? 'badge-active' : 'badge-disabled'}">${u.status}</span></td>
                     <td>
                         <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                            <button class="btn-action" style="padding: 4px 8px; font-size: 11px; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);" onclick="openEditUserModal(${u.id}, '${u.username}', '${(u.full_name || '').replace(/'/g, "\\'")}', ${u.initial_capital || 100000}, ${u.role === 'admin'})">
+                                ✏️ Edit
+                            </button>
                             <button class="btn-action" style="padding: 4px 8px; font-size: 11px; color: #fbbf24; border-color: rgba(251, 191, 36, 0.4);" onclick="openResetPwdModal(${u.id}, '${u.username}')">
                                 🔑 Reset
                             </button>
@@ -628,6 +675,75 @@
             }
         } catch (err) {
             alert('Failed to reset password: ' + err);
+        }
+    }
+
+    let globalUsersList = [];
+
+    function openEditMyProfileModal() {
+        const adminUser = globalUsersList.find(u => u.role === 'admin') || { id: 1, username: 'admin', full_name: 'Master Administrator', initial_capital: 1000000 };
+        openEditUserModal(adminUser.id, adminUser.username, adminUser.full_name, adminUser.initial_capital, true);
+    }
+
+    function openEditUserModal(userId, username, fullName, capital, isAdmin) {
+        document.getElementById('editUserId').value = userId;
+        document.getElementById('editIsAdmin').value = isAdmin ? '1' : '0';
+        document.getElementById('editUsername').value = username;
+        document.getElementById('editFullName').value = fullName;
+        document.getElementById('editNewPassword').value = '';
+        document.getElementById('editCapital').value = capital || 100000;
+        
+        const capField = document.getElementById('editCapitalField');
+        if (isAdmin) {
+            capField.style.display = 'none';
+        } else {
+            capField.style.display = 'block';
+        }
+        
+        document.getElementById('editUserModal').classList.add('open');
+    }
+
+    function closeEditUserModal() {
+        document.getElementById('editUserModal').classList.remove('open');
+    }
+
+    async function handleSaveUserProfile(e) {
+        e.preventDefault();
+        const userId = document.getElementById('editUserId').value;
+        const username = document.getElementById('editUsername').value.trim();
+        const fullName = document.getElementById('editFullName').value.trim();
+        const newPassword = document.getElementById('editNewPassword').value.trim();
+        const isAdmin = document.getElementById('editIsAdmin').value === '1';
+        const capital = isAdmin ? null : parseFloat(document.getElementById('editCapital').value);
+
+        if (!username || !fullName) {
+            alert('Username and Full Name cannot be empty!');
+            return;
+        }
+
+        try {
+            const payload = {
+                username: username,
+                full_name: fullName
+            };
+            if (newPassword) payload.new_password = newPassword;
+            if (capital !== null && !isNaN(capital)) payload.capital = capital;
+
+            const res = await fetch(`/api/admin/users/${userId}/update_profile`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                alert('Account details successfully updated!');
+                closeEditUserModal();
+                loadUsers();
+            } else {
+                alert('Error: ' + data.message);
+            }
+        } catch (err) {
+            alert('Failed to update account: ' + err);
         }
     }
 

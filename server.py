@@ -512,6 +512,17 @@ def api_admin_reset_password(user_id: int, payload: dict, admin: dict = Depends(
     new_password = payload.get("new_password", "").strip()
     return user_db.reset_user_password(user_id, new_password)
 
+@app.post("/api/admin/users/{user_id}/update_profile")
+def api_admin_update_profile(user_id: int, payload: dict, admin: dict = Depends(require_admin)):
+    """Updates user username, full_name, password, and margin balance."""
+    return user_db.update_user_profile(
+        user_id=user_id,
+        username=payload.get("username"),
+        full_name=payload.get("full_name"),
+        new_password=payload.get("new_password"),
+        capital=payload.get("capital")
+    )
+
 @app.get("/api/admin/live_positions")
 def api_admin_live_positions(admin: dict = Depends(require_admin)):
     """Real-time stream of all open positions across all users."""
