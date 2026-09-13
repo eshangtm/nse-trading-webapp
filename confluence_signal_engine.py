@@ -154,8 +154,10 @@ class ConfluencePaperTrader:
     - Auto Exit: Switched to opposite signal or NEUTRAL_EXIT -> TURANT CLOSE
     """
     def __init__(self, db_path=DB_PATH):
-        self.db_path = db_path
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        self.db_path = os.path.abspath(db_path)
+        dir_name = os.path.dirname(self.db_path)
+        if dir_name:
+            os.makedirs(dir_name, exist_ok=True)
         self._lock = threading.Lock()
         self.auto_trader_enabled = True
         self.active_position = None  # Dict of active trade or None
