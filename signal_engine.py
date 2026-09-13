@@ -4,7 +4,8 @@ import pandas as pd
 
 from settings_manager import get as _get_setting
 
-DB_PATH = r"C:\nse_tool\research_data.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "data", "research_data.db")
 
 _db_ensured = False
 

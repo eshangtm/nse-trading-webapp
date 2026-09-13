@@ -12,7 +12,7 @@ class _SafeEncoder(json.JSONEncoder):
         except (TypeError, ValueError):
             return str(o)
 
-SETTINGS_PATH = r"C:\nse_tool\settings.json"
+SETTINGS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
 
 DEFAULTS = {
     "strike_range_default": "ATM \u00b120",

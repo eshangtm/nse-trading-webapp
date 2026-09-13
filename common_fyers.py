@@ -11,8 +11,10 @@ try:
 except ImportError:
     HAS_ZSTD = False
 
-TOKEN_FILE = r"C:\nse_tool\fyers_token.json"
-OUTPUT_DIR = r"C:\nse_tool\collected_data"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOKEN_FILE = os.path.join(BASE_DIR, "fyers_token.json")
+OUTPUT_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 IST_OFFSET = timedelta(hours=5, minutes=30)
 
 from settings_manager import get as _get_setting

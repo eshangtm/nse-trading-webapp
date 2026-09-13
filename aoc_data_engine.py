@@ -11,7 +11,8 @@ import pandas as pd
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
-DEFAULT_AOC_DIR = r"C:\AllProjects\AOC_Backtester\data"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_AOC_DIR = r"C:\AllProjects\AOC_Backtester\data" if os.path.exists(r"C:\AllProjects\AOC_Backtester\data") else os.path.join(BASE_DIR, "data", "aoc")
 
 class AOCDataEngine:
     """Provides ultra-fast, authentic Advance Option Chain historical data."""

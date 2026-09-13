@@ -11,7 +11,10 @@ from aoc_sr_engine import calculate_aoc_sr
 from tot_signal_engine import calculate_tot_decision
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
-DB_PATH = r"C:\nse_tool\collected_data\paper_trades.db"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, "paper_trades.db")
 
 def now_ist_str():
     return (datetime.now(timezone.utc).replace(tzinfo=None) + IST_OFFSET).strftime("%Y-%m-%d %H:%M:%S")

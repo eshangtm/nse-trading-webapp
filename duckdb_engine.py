@@ -8,10 +8,19 @@ import pandas as pd
 from datetime import datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-LOCAL_PROJECT_DB_PATH = os.path.join(PROJECT_ROOT, "data", "ticks_data.duckdb")
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+LOCAL_PROJECT_DB_PATH = os.path.join(DATA_DIR, "ticks_data.duckdb")
 MASTER_HISTORICAL_DB_PATH = r"F:\Tik By Tik\ticks_data.duckdb"
 FALLBACK_HISTORICAL_DB_PATH = r"C:\nse_tool\nifty50_ticks.duckdb"
-DB_PATH = LOCAL_PROJECT_DB_PATH if os.path.exists(LOCAL_PROJECT_DB_PATH) else r"C:\nse_tool\nifty50_ticks.duckdb"
+
+# Select DB path safely across both Windows and Linux cloud
+if os.path.exists(LOCAL_PROJECT_DB_PATH):
+    DB_PATH = LOCAL_PROJECT_DB_PATH
+elif os.path.exists(FALLBACK_HISTORICAL_DB_PATH):
+    DB_PATH = FALLBACK_HISTORICAL_DB_PATH
+else:
+    DB_PATH = LOCAL_PROJECT_DB_PATH
 
 def get_historical_db_path():
     if os.path.exists(LOCAL_PROJECT_DB_PATH):
