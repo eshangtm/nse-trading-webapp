@@ -349,17 +349,17 @@ class MultiUserTradingManager:
             except Exception as e:
                 print(f"Error auto-closing position {tid}:", e)
 
-    def broadcast_signal(self, signal_data: Dict[str, Any]) -> Dict[str, Any]:
+    def broadcast_signal(self, signal_data: Dict[str, Any], master_auto: bool = False) -> Dict[str, Any]:
         """
         Broadcasts an incoming algorithmic confluence signal across all active users.
-        - If user has auto_trade_enabled=1 and direction matches -> Auto-executes order.
+        - If master_auto is True or user has auto_trade_enabled=1 and direction matches -> Auto-executes order.
         - If user has auto_trade_enabled=0 -> Creates interactive notification alert (Execute/Cancel).
         """
         signal_dir = signal_data.get("direction", "CALL").upper()
-        strike = float(signal_data.get("strike", 0.0))
+        strike = float(signal_data.get("strike", 0.0) or signal_data.get("strike_price", 0.0))
         contract = signal_data.get("contract", f"NIFTY {int(strike)} {'CE' if signal_dir == 'CALL' else 'PE'}")
-        spot = float(signal_data.get("spot", 0.0))
-        suggested_price = float(signal_data.get("suggested_price", 120.0))
+        spot = float(signal_data.get("spot", 0.0) or signal_data.get("entry_spot", 0.0))
+        suggested_price = float(signal_data.get("suggested_price", 0.0) or signal_data.get("entry_ltp", 120.0))
         signal_id = signal_data.get("signal_id", f"SIG_{int(time.time()*1000)}")
 
         auto_trades_placed = []
@@ -392,7 +392,9 @@ class MultiUserTradingManager:
             target_pts = float(user_cfg.get("target_pts", 35.0))
             sl_pts = float(user_cfg.get("sl_pts", 25.0))
 
-            if user_cfg.get("auto_trade_enabled", 0) == 1:
+            is_auto_active = bool(master_auto or user_cfg.get("auto_trade_enabled", 0) == 1)
+
+            if is_auto_active:
                 # ── Auto-Trade Mode: Execute instantly ──
                 res = self.place_order(
                     user_id=user_id,

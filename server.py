@@ -91,20 +91,31 @@ async def live_tick_background_loop():
         try:
             # 1. Attempt live Fyers / broker fetch
             records = await asyncio.to_thread(collector.fetch_current_nifty_chain)
-            if records and len(records) > 0:
-                # Save into today's isolated daily DuckDB
-                await asyncio.to_thread(cloud_data_manager.save_live_ticks, records)
-                await asyncio.to_thread(duckdb_engine.insert_ticks, records)
-                spot_p = float(records[0].get("spot_price", 0.0))
-                if spot_p > 0:
-                    await asyncio.to_thread(multi_user_trader.update_all_positions_with_ticks, records, spot_p)
-            else:
+            ticks = records if (records and len(records) > 0) else None
+
+            if not ticks:
                 # Fallback to latest DuckDB chain snapshot
                 df = await asyncio.to_thread(duckdb_engine.get_latest_option_chain)
                 if df is not None and not df.empty:
-                    spot_p = float(df['spot_price'].iloc[0])
                     ticks = df.to_dict('records')
+
+            if ticks and len(ticks) > 0:
+                spot_p = float(ticks[0].get("spot_price", 0.0))
+                if records and len(records) > 0:
+                    await asyncio.to_thread(cloud_data_manager.save_live_ticks, records)
+                    await asyncio.to_thread(duckdb_engine.insert_ticks, records)
+
+                if spot_p > 0:
+                    # 1. Update all users' active positions & trailing SL
                     await asyncio.to_thread(multi_user_trader.update_all_positions_with_ticks, ticks, spot_p)
+
+                    # 2. Evaluate master signal engine for algorithmic setups
+                    sig_res = await asyncio.to_thread(live_signal_engine.process_market_tick, ticks, spot_p)
+                    if sig_res and isinstance(sig_res, dict):
+                        sig = sig_res.get("signal")
+                        if sig:
+                            master_auto = bool(live_signal_engine.state.get("auto_trading", True))
+                            await asyncio.to_thread(multi_user_trader.broadcast_signal, sig, master_auto=master_auto)
         except Exception as e:
             pass
         await asyncio.sleep(2)  # Tick every 2 seconds
@@ -454,7 +465,12 @@ def cancel_signal_action(payload: dict = None):
 def trigger_test_signal_route(payload: dict = None):
     payload = payload or {}
     direction = payload.get("direction", "CALL")
-    return live_signal_engine.trigger_test_signal(direction)
+    res = live_signal_engine.trigger_test_signal(direction)
+    sig = res.get("signal")
+    if sig:
+        master_auto = bool(live_signal_engine.state.get("auto_trading", True))
+        multi_user_trader.broadcast_signal(sig, master_auto=master_auto)
+    return res
 
 @app.get("/api/signals/wallet")
 def get_signal_wallet():
