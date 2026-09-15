@@ -10,7 +10,11 @@ import time
 from datetime import datetime
 
 from aoc_sr_engine import calculate_aoc_sr
-from notification_center import create_notification
+try:
+    from notification_center import create_notification
+except ImportError:
+    def create_notification(*args, **kwargs):
+        pass
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "collected_data")

@@ -14,11 +14,18 @@ import os
 import json
 from datetime import datetime
 
-STATE_FILE = r"C:\AllProjects\nse_tool\backtest_vault\signal_engine_state.json"
-SIGNALS_LOG_FILE = r"C:\AllProjects\nse_tool\backtest_vault\live_signals_log.json"
-SIGNALS_CSV_FILE = r"C:\AllProjects\nse_tool\backtest_vault\institutional_live_trades.csv"
-SIGNALS_DB_FILE = r"C:\AllProjects\nse_tool\collected_data\institutional_trades.db"
-WALLET_FILE = r"C:\AllProjects\nse_tool\backtest_vault\signals_virtual_wallet.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+LOCAL_VAULT = r"C:\AllProjects\nse_tool\backtest_vault"
+LOCAL_COLLECTED = r"C:\AllProjects\nse_tool\collected_data"
+
+STATE_FILE = os.path.join(LOCAL_VAULT, "signal_engine_state.json") if os.path.exists(LOCAL_VAULT) else os.path.join(DATA_DIR, "signal_engine_state.json")
+SIGNALS_LOG_FILE = os.path.join(LOCAL_VAULT, "live_signals_log.json") if os.path.exists(LOCAL_VAULT) else os.path.join(DATA_DIR, "live_signals_log.json")
+SIGNALS_CSV_FILE = os.path.join(LOCAL_VAULT, "institutional_live_trades.csv") if os.path.exists(LOCAL_VAULT) else os.path.join(DATA_DIR, "institutional_live_trades.csv")
+SIGNALS_DB_FILE = os.path.join(LOCAL_COLLECTED, "institutional_trades.db") if os.path.exists(LOCAL_COLLECTED) else os.path.join(DATA_DIR, "institutional_trades.db")
+WALLET_FILE = os.path.join(LOCAL_VAULT, "signals_virtual_wallet.json") if os.path.exists(LOCAL_VAULT) else os.path.join(DATA_DIR, "signals_virtual_wallet.json")
 
 class LiveSignalEngine:
     def __init__(self):
@@ -26,6 +33,7 @@ class LiveSignalEngine:
             "master_switch": True,        # Master ON/OFF Switch
             "auto_trading": True,         # Autonomous execution enabled by default
             "lot_size_multiplier": 2,     # 2 Lots default (130 Qty) for 40k/week target
+            "strike_selection_mode": "ITM_1", # User-configurable: ITM_1, ATM, ITM_2, OTM_1
             "stop_loss_pts": 7.5,         # Strict 7.5 pts SL
             "breakeven_trigger_pts": 3.0, # +3.0 pts lock breakeven
             "target_p6_lock": 6.0,
@@ -321,9 +329,46 @@ class LiveSignalEngine:
         return {"status": "ok", "auto_trading": self.state["auto_trading"]}
 
     def set_lot_size(self, lots: int):
-        self.state["lot_size_multiplier"] = max(1, min(10, int(lots)))
+        self.state["lot_size_multiplier"] = max(1, min(20, int(lots)))
         self.save_state()
         return {"status": "ok", "lots": self.state["lot_size_multiplier"], "qty": self.state["lot_size_multiplier"] * 65}
+
+    def set_strike_mode(self, mode: str):
+        """Configure user preferred strike selection rule: ITM_1, ATM, ITM_2, OTM_1"""
+        valid = ["ITM_1", "ATM", "ITM_2", "OTM_1"]
+        clean_mode = str(mode).strip().upper()
+        if clean_mode in valid:
+            self.state["strike_selection_mode"] = clean_mode
+            self.save_state()
+            return {"status": "ok", "strike_mode": clean_mode}
+        return {"status": "error", "message": f"Invalid mode. Choose from {valid}"}
+
+    def calculate_trade_strike(self, spot_price: float, direction: str, mode: str = None) -> tuple:
+        """
+        Calculates option strike and estimated delta based on selected strike mode and direction.
+        Returns: (strike_int, delta_float, label_str)
+        """
+        mode = mode or self.state.get("strike_selection_mode", "ITM_1")
+        atm = int(round(spot_price / 50.0) * 50)
+        is_call = direction.upper() in ["CALL", "BUY_CE", "CE"]
+        
+        if mode == "ATM":
+            strike = atm
+            delta = 0.50 if is_call else -0.50
+            lbl = "ATM"
+        elif mode == "ITM_2":
+            strike = (atm - 100) if is_call else (atm + 100)
+            delta = 0.75 if is_call else -0.75
+            lbl = "2 ITM"
+        elif mode == "OTM_1":
+            strike = (atm + 50) if is_call else (atm - 50)
+            delta = 0.35 if is_call else -0.35
+            lbl = "1 OTM"
+        else: # Default ITM_1
+            strike = (atm - 50) if is_call else (atm + 50)
+            delta = 0.65 if is_call else -0.65
+            lbl = "1 ITM"
+        return strike, delta, lbl
 
     def execute_signal(self, signal_id: str = None, is_auto: bool = False):
         """Execute the active signal and record it into dedicated Virtual Wallet"""
@@ -558,87 +603,88 @@ class LiveSignalEngine:
         return {"status": "ok", "message": "Signal cancelled and dismissed"}
 
     def trigger_test_signal(self, direction: str = "CALL"):
-        """Generate an authentic test signal for UI testing and verification"""
+        """Generate an authentic test signal dynamically aligned with current live market spot and S/R"""
         now_dt = datetime.now()
         now_ts = now_dt.strftime("%Y-%m-%d %H:%M:%S")
         uid = now_dt.strftime("%Y%m%d_%H%M%S_%f")
         lots = self.state.get("lot_size_multiplier", 2)
         qty = lots * 65
 
-        if direction.upper() == "PUT":
-            sig = {
-                "signal_id": f"SIG_{uid}",
-                "trade_id": f"TRD_{uid}",
-                "timestamp": now_ts,
-                "entry_time": now_ts,
-                "action": "BUY_PE",
-                "contract": "NIFTY 24850 PE (1 ITM)",
-                "direction": "PUT",
-                "strike_price": 24850,
-                "option_type": "PE",
-                "entry_spot": 24810.50,
-                "entry_ltp": 138.40,
-                "lots": lots,
-                "qty": qty,
-                "stop_loss_pts": self.state["stop_loss_pts"],
-                "stop_loss_price": round(138.40 - self.state["stop_loss_pts"], 2),
-                "target_plan": {
-                    "breakeven_lock": round(138.40 + 3.0, 2),
-                    "target_1": round(138.40 + 6.0, 2),
-                    "target_2_runner": round(138.40 + 12.0, 2)
-                },
-                "target_price": round(138.40 + 12.0, 2),
-                "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
-                "margin_utilized": round(138.40 * qty, 2),
-                "target_profit_rupees": round(12.0 * qty, 2),
-                "ma_9": 24806.20,
-                "ema_21": 24798.40,
-                "oi": 1920000,
-                "oi_change": 192500,
-                "volume": 84200,
-                "volume_spike": "2.8x",
-                "delta": -0.65,
-                "weapon_signature": "WEAPON_TOP_CALL_FORTRESS / RESISTANCE_REJECTION",
-                "weapon_reason": "Resistance at 24850: Call writers added +192,500 OI | 1m Volume Spike 2.8x | Delta -0.65",
-                "status": "ACTIVE_PENDING_CONFIRMATION"
-            }
+        # Fetch current spot price dynamically from DuckDB or state
+        spot_price = float(self.state.get("live_spot_price") or 23387.05)
+        try:
+            from duckdb_engine import duckdb_engine
+            df = duckdb_engine.get_latest_option_chain()
+            if df is not None and not df.empty:
+                spot_price = float(df['spot_price'].iloc[0])
+        except Exception:
+            pass
+
+        strike_mode = self.state.get("strike_selection_mode", "ITM_1")
+        strike_price, delta, strike_lbl = self.calculate_trade_strike(spot_price, direction, strike_mode)
+        atm_strike = int(round(spot_price / 50.0) * 50)
+
+        is_put = direction.upper() in ["PUT", "PE", "BUY_PE"]
+        opt_type = "PE" if is_put else "CE"
+        action = f"BUY_{opt_type}"
+        contract = f"NIFTY {strike_price} {opt_type} ({strike_lbl})"
+
+        # Dynamic intrinsic + time value estimate for realistic entry LTP
+        if is_put:
+            intrinsic = max(0.0, strike_price - spot_price)
         else:
-            sig = {
-                "signal_id": f"SIG_{uid}",
-                "trade_id": f"TRD_{uid}",
-                "timestamp": now_ts,
-                "entry_time": now_ts,
-                "action": "BUY_CE",
-                "contract": "NIFTY 24700 CE (1 ITM)",
-                "direction": "CALL",
-                "strike_price": 24700,
-                "option_type": "CE",
-                "entry_spot": 24745.20,
-                "entry_ltp": 146.80,
-                "lots": lots,
-                "qty": qty,
-                "stop_loss_pts": self.state["stop_loss_pts"],
-                "stop_loss_price": round(146.80 - self.state["stop_loss_pts"], 2),
-                "target_plan": {
-                    "breakeven_lock": round(146.80 + 3.0, 2),
-                    "target_1": round(146.80 + 6.0, 2),
-                    "target_2_runner": round(146.80 + 12.0, 2)
-                },
-                "target_price": round(146.80 + 12.0, 2),
-                "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
-                "margin_utilized": round(146.80 * qty, 2),
-                "target_profit_rupees": round(12.0 * qty, 2),
-                "ma_9": 24749.10,
-                "ema_21": 24758.30,
-                "oi": 1845200,
-                "oi_change": 185000,
-                "volume": 88400,
-                "volume_spike": "2.8x",
-                "delta": 0.65,
-                "weapon_signature": "WEAPON_BOTTOM_PUT_SHIELD / SUPPORT_BOUNCE",
-                "weapon_reason": "Support at 24700: Put writers added +185,000 OI | 1m Volume Spike 2.8x | Delta 0.65",
-                "status": "ACTIVE_PENDING_CONFIRMATION"
-            }
+            intrinsic = max(0.0, spot_price - strike_price)
+        est_ltp = round(intrinsic + 72.5, 1)
+        if est_ltp < 25.0:
+            est_ltp = 55.0
+
+        support = atm_strike - 50 if (atm_strike - 50) <= spot_price else atm_strike
+        resistance = atm_strike + 100 if (atm_strike + 100) >= spot_price else atm_strike + 50
+
+        if is_put:
+            weapon_sig = "WEAPON_TOP_CALL_FORTRESS / RESISTANCE_REJECTION"
+            weapon_reason = f"Resistance at {resistance}: Call writers fortress | Spot ₹{spot_price:,.2f} rejected | Strike {strike_price} PE ({strike_lbl})"
+        else:
+            weapon_sig = "WEAPON_BOTTOM_PUT_SHIELD / SUPPORT_BOUNCE"
+            weapon_reason = f"Support at {support}: Put writers shield active | Spot ₹{spot_price:,.2f} bounce confirmed | Strike {strike_price} CE ({strike_lbl})"
+
+        sig = {
+            "signal_id": f"SIG_{uid}",
+            "trade_id": f"TRD_{uid}",
+            "timestamp": now_ts,
+            "entry_time": now_ts,
+            "action": action,
+            "contract": contract,
+            "direction": "PUT" if is_put else "CALL",
+            "strike_price": strike_price,
+            "option_type": opt_type,
+            "entry_spot": round(spot_price, 2),
+            "entry_ltp": est_ltp,
+            "lots": lots,
+            "qty": qty,
+            "stop_loss_pts": self.state["stop_loss_pts"],
+            "stop_loss_price": round(est_ltp - self.state["stop_loss_pts"], 2),
+            "target_plan": {
+                "breakeven_lock": round(est_ltp + 3.0, 2),
+                "target_1": round(est_ltp + 6.0, 2),
+                "target_2_runner": round(est_ltp + 12.0, 2)
+            },
+            "target_price": round(est_ltp + 12.0, 2),
+            "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
+            "margin_utilized": round(est_ltp * qty, 2),
+            "target_profit_rupees": round(12.0 * qty, 2),
+            "ma_9": round(spot_price + (1.5 if is_put else -1.5), 2),
+            "ema_21": round(spot_price + (3.0 if is_put else -3.0), 2),
+            "oi": 1920000,
+            "oi_change": 185000,
+            "volume": 84200,
+            "volume_spike": "2.8x",
+            "delta": delta,
+            "weapon_signature": weapon_sig,
+            "weapon_reason": weapon_reason,
+            "status": "ACTIVE_PENDING_CONFIRMATION",
+            "is_test": True
+        }
 
         # If auto-trading is ON, auto-execute immediately
         if self.state.get("auto_trading"):
@@ -700,9 +746,9 @@ class LiveSignalEngine:
         ce_1itm_ltp = float(last_row.get("ce_1itm", 150.0) or 150.0)
         pe_1itm_ltp = float(last_row.get("pe_1itm", 150.0) or 150.0)
 
-        # 1 ITM Strikes
-        itm_call_strike = round((spot - 50)/50.0)*50
-        itm_put_strike = round((spot + 50)/50.0)*50
+        # Dynamic Strikes using user-selected strike mode (ITM_1, ATM, ITM_2, OTM_1)
+        itm_call_strike, call_delta, call_lbl = self.calculate_trade_strike(spot, "CALL")
+        itm_put_strike, put_delta, put_lbl = self.calculate_trade_strike(spot, "PUT")
 
         signal = None
         lots = self.state["lot_size_multiplier"]
@@ -717,7 +763,7 @@ class LiveSignalEngine:
                 "timestamp": ts,
                 "entry_time": ts,
                 "action": "BUY_CE",
-                "contract": f"NIFTY {int(itm_call_strike)} CE (1 ITM)",
+                "contract": f"NIFTY {int(itm_call_strike)} CE ({call_lbl})",
                 "direction": "CALL",
                 "strike_price": int(itm_call_strike),
                 "option_type": "CE",
@@ -742,9 +788,9 @@ class LiveSignalEngine:
                 "oi_change": int(pe_oi_bld),
                 "volume": int(v_diff_ce),
                 "volume_spike": vol_spike_ce,
-                "delta": round(ce_d, 2),
+                "delta": round(call_delta, 2),
                 "weapon_signature": "WEAPON_BOTTOM_PUT_SHIELD / SUPPORT_BOUNCE",
-                "weapon_reason": f"Support at {int(itm_call_strike)}: Put writers added +{int(pe_oi_bld):,} OI | 1m Volume Spike {vol_spike_ce} | Delta {ce_d:.2f}",
+                "weapon_reason": f"Support at {int(itm_call_strike)}: Put writers added +{int(pe_oi_bld):,} OI | 1m Volume Spike {vol_spike_ce} | Delta {call_delta:.2f}",
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 
@@ -757,7 +803,7 @@ class LiveSignalEngine:
                 "timestamp": ts,
                 "entry_time": ts,
                 "action": "BUY_PE",
-                "contract": f"NIFTY {int(itm_put_strike)} PE (1 ITM)",
+                "contract": f"NIFTY {int(itm_put_strike)} PE ({put_lbl})",
                 "direction": "PUT",
                 "strike_price": int(itm_put_strike),
                 "option_type": "PE",
@@ -782,9 +828,9 @@ class LiveSignalEngine:
                 "oi_change": int(ce_oi_bld),
                 "volume": int(v_diff_pe),
                 "volume_spike": vol_spike_pe,
-                "delta": round(pe_d, 2),
+                "delta": round(put_delta, 2),
                 "weapon_signature": "WEAPON_TOP_CALL_FORTRESS / RESISTANCE_REJECTION",
-                "weapon_reason": f"Resistance at {int(itm_put_strike)}: Call writers added +{int(ce_oi_bld):,} OI | 1m Volume Spike {vol_spike_pe} | Delta {pe_d:.2f}",
+                "weapon_reason": f"Resistance at {int(itm_put_strike)}: Call writers added +{int(ce_oi_bld):,} OI | 1m Volume Spike {vol_spike_pe} | Delta {put_delta:.2f}",
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 

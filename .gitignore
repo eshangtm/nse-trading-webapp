@@ -2,6 +2,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 data/*.duckdb
+data/*.duckdb.wal
+data/*.wal
+data/*.db-journal
 data/*.zip
+data/paper_trades.db
+collected_data/
 *.log
 .env

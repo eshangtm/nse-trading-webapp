@@ -5,7 +5,49 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Master Admin Control Desk — Virtual Trading Platform</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- TradingView Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
+        @keyframes pulseLive {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.35; transform: scale(1.35); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .chart-tf-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .chart-tf-btn:hover { color: #fff; }
+        .chart-tf-btn.active {
+            background: #0284c7;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+        }
+        .strike-btn, .lot-btn {
+            background: #1e293b;
+            color: #cbd5e1;
+            border: 1px solid #334155;
+            padding: 6px 12px;
+            border-radius: 7px;
+            font-size: 11.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .strike-btn:hover, .lot-btn:hover { color: #fff; border-color: #64748b; }
+        .strike-btn.active, .lot-btn.active {
+            background: #0284c7;
+            color: #fff;
+            border-color: #38bdf8;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.35);
+        }
         :root {
             --bg-dark: #070a12;
             --card-bg: rgba(14, 21, 38, 0.75);
@@ -247,6 +289,84 @@
         </div>
     </div>
 
+    <!-- REAL-TIME NIFTY SPOT TICKER & AOC LIVE METRICS -->
+    <div class="live-ticker-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.9); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 14px; padding: 14px 20px; margin-bottom: 18px; flex-wrap: wrap; gap: 14px; box-shadow: 0 6px 25px rgba(0,0,0,0.4);">
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981; animation: pulseLive 1.5s infinite; display: inline-block;"></span>
+            <span style="font-size: 13px; font-weight: 800; color: #10b981;" id="admin-feed-badge">🟢 LIVE FYERS NSE FEED CONNECTED</span>
+            <span style="font-size: 11.5px; color: #94a3b8;">(Auto-Syncing 100ms Ticks)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 24px; flex-wrap: wrap;">
+            <div>
+                <span style="font-size: 10.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">NIFTY 50 SPOT</span>
+                <span id="admin-spot-val" style="font-size: 20px; font-weight: 900; font-family: 'JetBrains Mono', monospace; color: #00f0ff;">₹23,387.05</span>
+            </div>
+            <div>
+                <span style="font-size: 10.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">ATM STRIKE</span>
+                <span id="admin-atm-val" style="font-size: 17px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #fbbf24;">23400</span>
+            </div>
+            <div>
+                <span style="font-size: 10.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">SUPPORT [SUP]</span>
+                <span id="admin-sup-val" style="font-size: 16px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #10b981;">23400</span>
+            </div>
+            <div>
+                <span style="font-size: 10.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">RESISTANCE [RES]</span>
+                <span id="admin-res-val" style="font-size: 16px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #ef4444;">23500</span>
+            </div>
+            <div>
+                <span style="font-size: 10.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">PCR & SENTIMENT</span>
+                <span id="admin-pcr-val" style="font-size: 14px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #38bdf8;">0.85 (BEARISH)</span>
+            </div>
+            <div>
+                <span style="font-size: 10.5px; color: #94a3b8; text-transform: uppercase; font-weight: 700; display: block;">LAST TICK</span>
+                <span id="admin-tick-time" style="font-size: 13.5px; font-weight: 700; font-family: 'JetBrains Mono', monospace; color: #f8fafc;">--:--:--</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- AUTO-TRADING STRIKE & LOT SELECTION CONTROL BAR -->
+    <div class="section-card" style="padding: 16px 20px; margin-bottom: 22px; background: linear-gradient(135deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.8)); border: 1px solid rgba(56, 189, 248, 0.25);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+            <div>
+                <span style="font-size: 14.5px; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+                    🎯 Auto-Trading Strike Rule & Lot Size Control
+                </span>
+                <p style="font-size: 11.5px; color: #94a3b8; margin-top: 2px;">
+                    Auto-Pilot inhi settings ke mutabiq orders execute karega (Dynamic ATM / ITM Calculation).
+                </p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap;">
+                <!-- Strike Selection Rule -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 11.5px; color: #94a3b8; font-weight: 700;">STRIKE:</span>
+                    <div style="display: inline-flex; gap: 6px;">
+                        <button class="strike-btn active" id="btn-strike-itm1" onclick="setAdminStrikeMode('ITM_1')">1 ITM (0.65Δ)</button>
+                        <button class="strike-btn" id="btn-strike-atm" onclick="setAdminStrikeMode('ATM')">ATM (0.50Δ)</button>
+                        <button class="strike-btn" id="btn-strike-itm2" onclick="setAdminStrikeMode('ITM_2')">2 ITM (0.75Δ)</button>
+                        <button class="strike-btn" id="btn-strike-otm1" onclick="setAdminStrikeMode('OTM_1')">1 OTM (0.35Δ)</button>
+                    </div>
+                </div>
+                <!-- Lot Multiplier -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 11.5px; color: #94a3b8; font-weight: 700;">LOTS:</span>
+                    <div style="display: inline-flex; gap: 6px;">
+                        <button class="lot-btn" id="btn-lot-1" onclick="setAdminLots(1)">1 Lot (65)</button>
+                        <button class="lot-btn active" id="btn-lot-2" onclick="setAdminLots(2)">2 Lots (130)</button>
+                        <button class="lot-btn" id="btn-lot-3" onclick="setAdminLots(3)">3 Lots (195)</button>
+                        <button class="lot-btn" id="btn-lot-4" onclick="setAdminLots(4)">4 Lots (260)</button>
+                    </div>
+                </div>
+                <!-- Auto Mode Toggle -->
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <button class="btn-action" id="admin-auto-toggle-btn" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); color: #fff; font-weight: 800; padding: 6px 12px; font-size: 12px;" onclick="toggleAdminAutoMode()">
+                        🤖 Auto-Pilot: ON
+                    </button>
+                    <span id="admin-config-status" style="font-size: 11px; color: #10b981; font-weight: 700;">✅ Active</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Platform KPI Scorecards -->
     <div class="kpi-grid">
         <div class="kpi-card card-cyan">
@@ -337,6 +457,29 @@
                 </tbody>
             </table>
         </div>
+    </div>
+
+    <!-- SECTION: LIVE CANDLESTICK CHART (1m / 3m / 5m) -->
+    <div class="section-card">
+        <div class="section-header">
+            <div class="section-title">
+                <span>📊 NIFTY 50 Live Candlestick Chart (Real-Time 1m/3m/5m)</span>
+                <span id="adminChartCandleCount" style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 3px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">Connecting feed...</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                <div style="display: flex; background: #070a12; border: 1px solid #334155; border-radius: 8px; padding: 2px;">
+                    <button class="chart-tf-btn active" id="admin-tf-60" onclick="setAdminChartInterval(60)">1m</button>
+                    <button class="chart-tf-btn" id="admin-tf-180" onclick="setAdminChartInterval(180)">3m</button>
+                    <button class="chart-tf-btn" id="admin-tf-300" onclick="setAdminChartInterval(300)">5m</button>
+                </div>
+                <span style="font-size: 11.5px; color: #94a3b8;">
+                    <span style="color: #38bdf8; font-weight: 700;">― 9 EMA</span> &nbsp;
+                    <span style="color: #f59e0b; font-weight: 700;">― 21 EMA</span>
+                </span>
+                <a href="/terminal" class="btn-action" target="_blank" style="padding: 4px 10px; font-size: 11px;">Fullscreen Option Matrix ↗</a>
+            </div>
+        </div>
+        <div id="admin-tradingview-chart" style="width: 100%; height: 380px; border-radius: 10px; overflow: hidden; position: relative;"></div>
     </div>
 </div>
 
@@ -595,7 +738,7 @@
                     <td>
                         <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px;">
                             <span id="pwd_val_${u.id}" style="color: #94a3b8; font-weight: 600;">••••••••</span>
-                            <button onclick="toggleViewPwd(${u.id}, '${(u.plain_password || 'demo123').replace(/'/g, "\\'")}')" title="Click to View / Hide" style="background: rgba(255,255,255,0.06); border: 1px solid #334155; border-radius: 4px; padding: 2px 6px; cursor: pointer; color: #38bdf8; font-size: 12px;">👁️</button>
+                            <button onclick="toggleViewPwd(${u.id})" title="Click to View / Hide" style="background: rgba(255,255,255,0.06); border: 1px solid #334155; border-radius: 4px; padding: 2px 6px; cursor: pointer; color: #38bdf8; font-size: 12px;">👁️</button>
                         </div>
                     </td>
                     <td>${u.full_name}</td>
@@ -630,11 +773,13 @@
         } catch (err) { console.error(err); }
     }
 
-    function toggleViewPwd(id, pwd) {
+    function toggleViewPwd(id) {
         const el = document.getElementById(`pwd_val_${id}`);
         if (!el) return;
+        const u = globalUsersList.find(user => user.id === id);
+        const pwd = (u && u.plain_password) ? u.plain_password : 'N/A';
         if (el.innerText === '••••••••') {
-            el.innerText = pwd || 'N/A';
+            el.innerText = pwd;
             el.style.color = '#34d399';
         } else {
             el.innerText = '••••••••';
@@ -787,10 +932,344 @@
         window.location.href = `/api/admin/export_day_data?date=${dateInput}`;
     }
 
+    // ══════════════════════════════════════════════════════════════════
+    // LIVE MARKET METRICS & AUTO-TRADING STRIKE / LOT DESK
+    // ══════════════════════════════════════════════════════════════════
+    let adminEngineState = {
+        auto_trading: true,
+        lot_size_multiplier: 2,
+        strike_selection_mode: "ITM_1"
+    };
+
+    async function loadLiveMarketMetrics() {
+        try {
+            // 1. Fetch Market Indicators (Spot, ATM, Support, Resistance, PCR)
+            const mRes = await fetch('/api/market/analysis');
+            const mData = await mRes.json();
+            if (mData.status === 'ok') {
+                const spotEl = document.getElementById('admin-spot-val');
+                if (spotEl) spotEl.innerText = '₹' + Number(mData.spot_price).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+                
+                const atmEl = document.getElementById('admin-atm-val');
+                if (atmEl) atmEl.innerText = mData.atm_strike;
+
+                const supEl = document.getElementById('admin-sup-val');
+                if (supEl) supEl.innerText = mData.support;
+
+                const resEl = document.getElementById('admin-res-val');
+                if (resEl) resEl.innerText = mData.resistance;
+
+                const pcrEl = document.getElementById('admin-pcr-val');
+                if (pcrEl) {
+                    pcrEl.innerText = `${mData.pcr} (${mData.sentiment})`;
+                    pcrEl.style.color = mData.sentiment === 'BULLISH' ? '#10b981' : '#ef4444';
+                }
+
+                const tickTimeEl = document.getElementById('admin-tick-time');
+                if (tickTimeEl && mData.timestamp) {
+                    const parts = mData.timestamp.split(' ');
+                    tickTimeEl.innerText = parts.length > 1 ? parts[1] : mData.timestamp;
+                }
+            }
+
+            // 2. Fetch Signal Engine Status (Auto mode, Lots, Strike Mode)
+            const sRes = await fetch('/api/signals/status');
+            const sData = await sRes.json();
+            if (sData) {
+                adminEngineState = sData;
+                updateAdminConfigUI();
+                const feedBadge = document.getElementById('admin-feed-badge');
+                if (feedBadge) {
+                    if (sData.live_connected) {
+                        feedBadge.innerHTML = '🟢 LIVE FYERS NSE FEED CONNECTED';
+                        feedBadge.style.color = '#10b981';
+                    } else {
+                        feedBadge.innerHTML = '🟡 SYNCING MARKET TICKS...';
+                        feedBadge.style.color = '#f59e0b';
+                    }
+                }
+            }
+        } catch (e) {
+            console.error("Market metrics error:", e);
+        }
+    }
+
+    function updateAdminConfigUI() {
+        // Update Strike Buttons
+        const mode = adminEngineState.strike_selection_mode || "ITM_1";
+        const strikeBtns = {
+            "ITM_1": document.getElementById('btn-strike-itm1'),
+            "ATM": document.getElementById('btn-strike-atm'),
+            "ITM_2": document.getElementById('btn-strike-itm2'),
+            "OTM_1": document.getElementById('btn-strike-otm1')
+        };
+        Object.keys(strikeBtns).forEach(k => {
+            if (strikeBtns[k]) {
+                if (k === mode) strikeBtns[k].classList.add('active');
+                else strikeBtns[k].classList.remove('active');
+            }
+        });
+
+        // Update Lot Buttons
+        const lots = adminEngineState.lot_size_multiplier || 2;
+        [1, 2, 3, 4].forEach(l => {
+            const btn = document.getElementById(`btn-lot-${l}`);
+            if (btn) {
+                if (l === lots) btn.classList.add('active');
+                else btn.classList.remove('active');
+            }
+        });
+
+        // Update Auto Mode Button
+        const autoBtn = document.getElementById('admin-auto-toggle-btn');
+        const isAuto = Boolean(adminEngineState.auto_trading);
+        if (autoBtn) {
+            if (isAuto) {
+                autoBtn.innerText = '🤖 Auto-Pilot: ON';
+                autoBtn.style.background = 'linear-gradient(135deg, #8b5cf6, #6d28d9)';
+                autoBtn.style.border = 'none';
+            } else {
+                autoBtn.innerText = '⏸️ Auto-Pilot: OFF';
+                autoBtn.style.background = '#334155';
+                autoBtn.style.border = '1px solid #64748b';
+            }
+        }
+    }
+
+    async function setAdminStrikeMode(mode) {
+        try {
+            const res = await fetch('/api/signals/set_strike_mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ strike_mode: mode })
+            });
+            const d = await res.json();
+            if (d.status === 'ok') {
+                adminEngineState.strike_selection_mode = mode;
+                updateAdminConfigUI();
+                showConfigToast(`Strike Mode set to ${mode}!`);
+            }
+        } catch (err) { alert(err); }
+    }
+
+    async function setAdminLots(lots) {
+        try {
+            const res = await fetch('/api/signals/set_lots', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ lots: lots })
+            });
+            const d = await res.json();
+            if (d.status === 'ok') {
+                adminEngineState.lot_size_multiplier = lots;
+                updateAdminConfigUI();
+                showConfigToast(`Default Lots set to ${lots} (${lots * 65} Qty)!`);
+            }
+        } catch (err) { alert(err); }
+    }
+
+    async function toggleAdminAutoMode() {
+        const nextState = !adminEngineState.auto_trading;
+        try {
+            const res = await fetch('/api/signals/toggle_auto', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ auto_trading: nextState })
+            });
+            const d = await res.json();
+            if (d.status === 'ok') {
+                adminEngineState.auto_trading = nextState;
+                updateAdminConfigUI();
+                showConfigToast(`Auto-Pilot turned ${nextState ? 'ON' : 'OFF'}!`);
+            }
+        } catch (err) { alert(err); }
+    }
+
+    function showConfigToast(msg) {
+        const badge = document.getElementById('admin-config-status');
+        if (badge) {
+            badge.innerText = '⚡ ' + msg;
+            badge.style.color = '#38bdf8';
+            setTimeout(() => {
+                badge.innerText = '✅ Active';
+                badge.style.color = '#10b981';
+            }, 3000);
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // TRADINGVIEW LIGHTWEIGHT CANDLESTICK CHART (1m / 3m / 5m)
+    // ══════════════════════════════════════════════════════════════════
+    let adminChart = null;
+    let adminCandleSeries = null;
+    let adminVolumeSeries = null;
+    let adminEma9Series = null;
+    let adminEma21Series = null;
+    let adminChartInterval = 60;
+
+    function initAdminChart() {
+        const chartContainer = document.getElementById('admin-tradingview-chart');
+        if (!chartContainer || typeof LightweightCharts === 'undefined') return;
+
+        adminChart = LightweightCharts.createChart(chartContainer, {
+            width: chartContainer.clientWidth || 1100,
+            height: 380,
+            layout: {
+                background: { color: '#090d16' },
+                textColor: '#94a3b8',
+                fontFamily: 'Outfit, sans-serif',
+                fontSize: 11
+            },
+            grid: {
+                vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+                horzLines: { color: 'rgba(255, 255, 255, 0.04)' }
+            },
+            crosshair: {
+                mode: LightweightCharts.CrosshairMode.Normal,
+            },
+            rightPriceScale: {
+                borderColor: '#1e293b',
+                scaleMargins: { top: 0.1, bottom: 0.2 }
+            },
+            timeScale: {
+                borderColor: '#1e293b',
+                timeVisible: true,
+                secondsVisible: false
+            }
+        });
+
+        // Candlestick Series
+        adminCandleSeries = adminChart.addCandlestickSeries({
+            upColor: '#10b981',
+            downColor: '#ef4444',
+            borderVisible: false,
+            wickUpColor: '#10b981',
+            wickDownColor: '#ef4444'
+        });
+
+        // Volume Series
+        adminVolumeSeries = adminChart.addHistogramSeries({
+            color: '#26a69a',
+            priceFormat: { type: 'volume' },
+            priceScaleId: '',
+            scaleMargins: { top: 0.82, bottom: 0 }
+        });
+
+        // 9 EMA Line (Cyan)
+        adminEma9Series = adminChart.addLineSeries({
+            color: '#38bdf8',
+            lineWidth: 2,
+            title: '9 EMA'
+        });
+
+        // 21 EMA Line (Amber)
+        adminEma21Series = adminChart.addLineSeries({
+            color: '#f59e0b',
+            lineWidth: 2,
+            title: '21 EMA'
+        });
+
+        window.addEventListener('resize', () => {
+            if (adminChart && chartContainer) {
+                adminChart.applyOptions({ width: chartContainer.clientWidth });
+            }
+        });
+
+        fetchAdminCandles();
+    }
+
+    function calculateEMA(data, period) {
+        if (!data || data.length < period) return [];
+        const k = 2 / (period + 1);
+        let ema = data[0].close;
+        const result = [];
+        for (let i = 0; i < data.length; i++) {
+            ema = (data[i].close * k) + (ema * (1 - k));
+            result.push({ time: data[i].time, value: parseFloat(ema.toFixed(2)) });
+        }
+        return result;
+    }
+
+    async function fetchAdminCandles() {
+        if (!adminCandleSeries) return;
+        try {
+            const res = await fetch(`/api/candles?symbol=SPOT&interval=${adminChartInterval}`);
+            const json = await res.json();
+            if (json.status === 'ok' && json.candles && json.candles.length > 0) {
+                const formatted = json.candles.map(c => {
+                    let t = c.time;
+                    if (typeof t === 'string') {
+                        t = Math.floor(new Date(t.replace(' ', 'T')).getTime() / 1000);
+                    }
+                    return {
+                        time: Number(t),
+                        open: Number(c.open),
+                        high: Number(c.high),
+                        low: Number(c.low),
+                        close: Number(c.close),
+                        volume: Number(c.volume || 0)
+                    };
+                }).sort((a, b) => a.time - b.time);
+
+                // Deduplicate times
+                const deduped = [];
+                const seenTimes = new Set();
+                formatted.forEach(c => {
+                    if (!seenTimes.has(c.time)) {
+                        seenTimes.add(c.time);
+                        deduped.push(c);
+                    }
+                });
+
+                adminCandleSeries.setData(deduped);
+
+                // Volume data
+                const volData = deduped.map(c => ({
+                    time: c.time,
+                    value: c.volume,
+                    color: c.close >= c.open ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'
+                }));
+                adminVolumeSeries.setData(volData);
+
+                // EMAs
+                const ema9 = calculateEMA(deduped, 9);
+                const ema21 = calculateEMA(deduped, 21);
+                adminEma9Series.setData(ema9);
+                adminEma21Series.setData(ema21);
+
+                const countBadge = document.getElementById('adminChartCandleCount');
+                if (countBadge) {
+                    const lastC = deduped[deduped.length - 1];
+                    countBadge.innerText = `${deduped.length} Candles (1m) | Spot ₹${lastC.close.toFixed(2)}`;
+                    countBadge.style.color = '#38bdf8';
+                }
+            }
+        } catch (e) {
+            console.error("Candle fetch error:", e);
+        }
+    }
+
+    function setAdminChartInterval(sec) {
+        adminChartInterval = sec;
+        ['60', '180', '300'].forEach(s => {
+            const btn = document.getElementById(`admin-tf-${s}`);
+            if (btn) {
+                if (s == sec) btn.classList.add('active');
+                else btn.classList.remove('active');
+            }
+        });
+        fetchAdminCandles();
+    }
+
     // Auto-refresh loops
     loadUsers();
     loadLivePositions();
+    loadLiveMarketMetrics();
+    initAdminChart();
+
     setInterval(loadLivePositions, 2000); // 2s live ticker
+    setInterval(loadLiveMarketMetrics, 2000); // 2s live market spot & S/R
+    setInterval(fetchAdminCandles, 3000); // 3s live candlestick refresh
     setInterval(loadUsers, 5000);
 </script>
 

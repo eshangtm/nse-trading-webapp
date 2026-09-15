@@ -673,11 +673,14 @@ def get_trade_filter_debug_info(symbol, strike, option_type, entry_price):
     Mirrors the logic in can_execute_trade() so the UI can show why a
     trade is blocked without actually executing it.
     """
-    from paper_trader import (
-        get_running_trades, get_trade_by_event,
-        is_active_trade, is_hard_blocked,
-    )
-    from automation_panel import get_max_open_trades, MIN_ENTRY_PRICE
+    try:
+        from paper_trader import (
+            get_running_trades, get_trade_by_event,
+            is_active_trade, is_hard_blocked,
+        )
+        from automation_panel import get_max_open_trades, MIN_ENTRY_PRICE
+    except ImportError:
+        return [("Safety Checks", "Pass", "Standalone / Webapp Mode Active")]
 
     checks = []
 

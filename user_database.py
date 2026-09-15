@@ -200,13 +200,9 @@ class UserDatabase:
                 conn.commit()
                 print("Default accounts successfully seeded: admin, demo_trader1, demo_trader2")
 
-            # Backfill existing accounts with plain_password
+            # Backfill existing admin account with plain_password only if empty
             try:
                 cursor.execute("UPDATE users SET plain_password = 'Admin@123' WHERE username = 'admin' AND (plain_password IS NULL OR plain_password = '')")
-                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'demo_trader1' AND (plain_password IS NULL OR plain_password = '')")
-                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'demo_trader2' AND (plain_password IS NULL OR plain_password = '')")
-                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'somd' AND (plain_password IS NULL OR plain_password = '')")
-                cursor.execute("UPDATE users SET plain_password = 'demo123' WHERE username = 'jimmy' AND (plain_password IS NULL OR plain_password = '')")
                 conn.commit()
             except Exception:
                 pass

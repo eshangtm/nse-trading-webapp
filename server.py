@@ -36,6 +36,7 @@ from duckdb_engine import duckdb_engine
 from full_tick_collector import FullTickCollector
 from cloud_data_manager import cloud_data_manager
 from confluence_signal_engine import confluence_paper_trader
+from live_signal_engine import live_signal_engine
 
 app = FastAPI(title="QuantGini Multi-User Virtual Trading Platform")
 
@@ -311,6 +312,211 @@ def get_chart_markers():
     except Exception as e:
         return {"status": "error", "markers": []}
 
+@app.get("/api/candles")
+def get_candles(symbol: str = "SPOT", interval: int = 60, date: str = None):
+    """API endpoint to fetch candle data from DuckDB for TradingView chart."""
+    df = duckdb_engine.get_candles(symbol=symbol, interval_seconds=interval, date=date)
+    if df is None or df.empty:
+        return {"status": "empty", "candles": []}
+    df = df.fillna(0.0)
+    df_c = df.rename(columns={"candle_time": "time"})
+    cols = [c for c in ["time", "open", "high", "low", "close", "volume"] if c in df_c.columns]
+    candles = df_c[cols].to_dict("records")
+    return {"status": "ok", "symbol": symbol, "date": date, "candles": candles}
+
+@app.get("/api/timestamps")
+def get_timestamps_api(date: str):
+    """Returns available historical timestamps for the date slider."""
+    ts = duckdb_engine.get_timestamps_for_date(date)
+    return {"status": "ok", "date": date, "timestamps": ts or []}
+
+@app.get("/api/symbols")
+def get_symbols_api():
+    """Returns all active option contracts and spot symbols."""
+    syms = duckdb_engine.get_active_symbols()
+    return {"status": "ok", "symbols": syms or ["NSE:NIFTY50-INDEX"]}
+
+@app.get("/api/aoc_sr")
+def api_aoc_sr(timestamp: Optional[str] = None):
+    """Calculates automated Support & Resistance lines (R1, R3, R Rev, S1, S3, S Rev) for charts."""
+    try:
+        if timestamp:
+            df = duckdb_engine.get_option_chain_at_timestamp(timestamp)
+        else:
+            df = duckdb_engine.get_latest_option_chain()
+        if df is None or df.empty:
+            return {"status": "empty", "data": None}
+        ticks = df.to_dict("records")
+        spot_price = float(ticks[0].get("spot_price", 0.0))
+        from aoc_sr_engine import calculate_aoc_sr
+        aoc_sr = calculate_aoc_sr(ticks, spot_price)
+        return {"status": "ok", "data": aoc_sr}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/tot_decision")
+def api_tot_decision(timestamp: Optional[str] = None):
+    """Calculates Table of Trade (TOT) decision matrix, sentiment, and CE/PE trade execution plans."""
+    try:
+        if timestamp:
+            df = duckdb_engine.get_option_chain_at_timestamp(timestamp)
+        else:
+            df = duckdb_engine.get_latest_option_chain()
+        if df is None or df.empty:
+            return {"status": "empty", "data": None}
+        ticks = df.to_dict("records")
+        spot_price = float(ticks[0].get("spot_price", 0.0))
+        from aoc_sr_engine import calculate_aoc_sr
+        from tot_signal_engine import calculate_tot_decision
+        aoc_sr = calculate_aoc_sr(ticks, spot_price)
+        tot = calculate_tot_decision(aoc_sr, spot_price)
+        return {"status": "ok", "data": tot}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/strike_percentage_history")
+def api_strike_percentage_history(strike: float, type: str = "CE", date: Optional[str] = None):
+    """Provides historical percentage movement for a strike."""
+    try:
+        target_date = date or datetime.now().strftime("%Y-%m-%d")
+        data = duckdb_engine.get_strike_percentage_history(target_date, float(strike), type.upper())
+        return {"status": "ok", "strike": strike, "type": type, "date": target_date, "data": data or []}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/strike_sr_history")
+def api_strike_sr_history(strike: float, date: Optional[str] = None):
+    """Provides historical candles for an option strike."""
+    try:
+        res = duckdb_engine.get_strike_history(float(strike), interval_seconds=60, date=date)
+        return res or {"status": "ok", "candles": []}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/signals/status")
+def get_signal_engine_status(timestamp: str = None):
+    """Get live signal engine state (switch status, lots, strike mode, active signal)."""
+    try:
+        connected, feed_msg = collector.is_fyers_connected()
+        live_signal_engine.state["live_connected"] = connected
+        live_signal_engine.state["feed_message"] = feed_msg
+        
+        is_open, msg = live_signal_engine.is_market_open()
+        live_signal_engine.state["is_market_open"] = is_open
+        live_signal_engine.state["market_status"] = msg
+        df = duckdb_engine.get_latest_option_chain()
+        if df is not None and not df.empty:
+            ticks = df.to_dict("records")
+            spot_price = float(ticks[0].get("spot_price", 0.0))
+            live_signal_engine.state["live_spot_price"] = spot_price
+            live_signal_engine.state["last_tick_time"] = str(ticks[0].get("time_str", datetime.now().strftime("%H:%M:%S")))
+            if is_open:
+                live_signal_engine.process_market_tick(ticks, spot_price, current_timestamp=None)
+    except Exception as e:
+        live_signal_engine.state["error"] = str(e)
+    return live_signal_engine.state
+
+@app.post("/api/signals/toggle_switch")
+def toggle_signal_switch(payload: dict):
+    is_on = payload.get("master_switch", True)
+    return live_signal_engine.set_switch(is_on)
+
+@app.post("/api/signals/set_lots")
+def set_signal_lots(payload: dict):
+    lots = payload.get("lots", 2)
+    return live_signal_engine.set_lot_size(lots)
+
+@app.post("/api/signals/set_strike_mode")
+def set_signal_strike_mode(payload: dict):
+    mode = payload.get("strike_mode", "ITM_1")
+    return live_signal_engine.set_strike_mode(mode)
+
+@app.post("/api/signals/toggle_auto")
+def toggle_signal_auto(payload: dict):
+    is_auto = payload.get("auto_trading", False)
+    return live_signal_engine.set_auto_mode(is_auto)
+
+@app.post("/api/signals/execute")
+def execute_signal_action(payload: dict = None):
+    payload = payload or {}
+    sig_id = payload.get("signal_id")
+    is_auto = payload.get("is_auto", False)
+    return live_signal_engine.execute_signal(sig_id, is_auto=is_auto)
+
+@app.post("/api/signals/cancel")
+def cancel_signal_action(payload: dict = None):
+    payload = payload or {}
+    sig_id = payload.get("signal_id")
+    return live_signal_engine.cancel_signal(sig_id)
+
+@app.post("/api/signals/test")
+@app.post("/api/signals/test_trigger")
+def trigger_test_signal_route(payload: dict = None):
+    payload = payload or {}
+    direction = payload.get("direction", "CALL")
+    return live_signal_engine.trigger_test_signal(direction)
+
+@app.get("/api/signals/wallet")
+def get_signal_wallet():
+    """Returns the dedicated virtual wallet status for the live signals desk."""
+    return live_signal_engine.get_wallet()
+
+@app.get("/api/signals/history")
+def get_signal_history(date: Optional[str] = None):
+    """Returns list of trades for the signals history table."""
+    return live_signal_engine.get_trades(date=date)
+
+@app.get("/api/signals/trades")
+def get_signal_trades(date: Optional[str] = None):
+    return {"status": "ok", "trades": live_signal_engine.get_trades(date=date), "wallet": live_signal_engine.get_wallet()}
+
+@app.post("/api/signals/trades/close")
+def close_signal_trade_route(payload: dict):
+    """Resolves or closes an active signal trade (Win / SL / Target hit)."""
+    trade_id = payload.get("trade_id")
+    outcome = payload.get("outcome", "TARGET_HIT")
+    exit_ltp = payload.get("exit_ltp")
+    return live_signal_engine.close_trade(trade_id, outcome=outcome, exit_ltp=exit_ltp)
+
+@app.post("/api/signals/delete_trades")
+@app.post("/api/signals/trades/delete")
+def delete_signal_trades(payload: dict):
+    trade_ids = payload.get("trade_ids", [])
+    return live_signal_engine.delete_trades(trade_ids)
+
+@app.post("/api/signals/reset_wallet")
+@app.post("/api/signals/wallet/reset")
+def reset_signal_wallet(payload: dict = None):
+    payload = payload or {}
+    init_cap = float(payload.get("initial_capital", 100000.0))
+    return live_signal_engine.reset_wallet(init_cap)
+
+@app.post("/api/signals/wallet/reset_daily_limit")
+def reset_signal_daily_limit():
+    return live_signal_engine.reset_daily_limit()
+
+@app.get("/api/signals/export_csv")
+def export_signals_csv(date: Optional[str] = None):
+    """Export trades history as downloadable CSV."""
+    import pandas as pd
+    import io
+    trades = live_signal_engine.get_trades(date=date)
+    if not trades:
+        content = "trade_id,timestamp,action,contract,strike_price,entry_ltp,exit_ltp,pnl_points,pnl_rupees,status\n"
+    else:
+        df = pd.DataFrame(trades)
+        content = df.to_csv(index=False)
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=institutional_trades_{date or 'all'}.csv"}
+    )
+
+@app.get("/api/reversal/trades")
+def get_reversal_trades_route(date: Optional[str] = None):
+    """Endpoint for reversal signals audit ledger."""
+    return {"status": "ok", "trades": []}
+
 
 # ══════════════════════════════════════════════════════════════════
 # USER TRADING REST API
@@ -326,14 +532,16 @@ def api_user_market_data():
     try:
         df = duckdb_engine.get_latest_option_chain()
         if df is None or df.empty:
+            fb_spot = 23387.05
+            fb_atm = 23400
             return {
                 "status": "ok",
-                "spot_price": 24700.0,
-                "atm_strike": 24700,
+                "spot_price": fb_spot,
+                "atm_strike": fb_atm,
                 "strikes": [
-                    {"strike": s, "ce_ltp": round(max(5.0, (24700 - s)*0.68 + 80), 1), 
-                     "pe_ltp": round(max(5.0, (s - 24700)*0.68 + 80), 1)}
-                    for s in range(24500, 24950, 50)
+                    {"strike": s, "ce_ltp": round(max(5.0, (fb_spot - s)*0.68 + 75), 1), 
+                     "pe_ltp": round(max(5.0, (s - fb_spot)*0.68 + 75), 1)}
+                    for s in range(fb_atm - 200, fb_atm + 250, 50)
                 ]
             }
 
@@ -449,18 +657,32 @@ def api_market_analysis():
     """Provides live market indicators (Spot, ATM, Support/Resistance, Trend)."""
     try:
         df = duckdb_engine.get_latest_option_chain()
-        spot_p = float(df['spot_price'].iloc[0]) if df is not None and not df.empty else 24700.0
+        spot_p = float(df['spot_price'].iloc[0]) if df is not None and not df.empty else 23387.05
         atm_strike = int(round(spot_p / 50.0) * 50)
         
-        # Calculate PCR and volume highlights if chain available
-        pcr = 1.05
-        sentiment = "BULLISH"
+        pcr = 0.85
+        sentiment = "BEARISH"
+        support = atm_strike - 50 if (atm_strike - 50) <= spot_p else atm_strike
+        resistance = atm_strike + 100 if (atm_strike + 100) >= spot_p else atm_strike + 50
+        
         if df is not None and not df.empty:
             total_ce_oi = df[df['type'] == 'CE']['oi'].sum()
             total_pe_oi = df[df['type'] == 'PE']['oi'].sum()
             if total_ce_oi > 0:
                 pcr = round(float(total_pe_oi / total_ce_oi), 2)
             sentiment = "BULLISH" if pcr >= 1.0 else "BEARISH"
+            
+            # Dynamic Real Support = Strike near ATM with Highest PE OI
+            pe_df = df[df['type'] == 'PE']
+            if not pe_df.empty:
+                max_pe_idx = pe_df['oi'].idxmax()
+                support = int(pe_df.loc[max_pe_idx, 'strike'])
+                
+            # Dynamic Real Resistance = Strike near ATM with Highest CE OI
+            ce_df = df[df['type'] == 'CE']
+            if not ce_df.empty:
+                max_ce_idx = ce_df['oi'].idxmax()
+                resistance = int(ce_df.loc[max_ce_idx, 'strike'])
 
         return {
             "status": "ok",
@@ -468,8 +690,8 @@ def api_market_analysis():
             "atm_strike": atm_strike,
             "pcr": pcr,
             "sentiment": sentiment,
-            "support": atm_strike - 150,
-            "resistance": atm_strike + 150,
+            "support": support,
+            "resistance": resistance,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
     except Exception as e:

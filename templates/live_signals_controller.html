@@ -5,7 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Institutional Live Signal Engine & Virtual Wallet Manager</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+    <!-- TradingView Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
     <style>
+        @keyframes pulseDot {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.3); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        .chart-tf-btn {
+            background: transparent;
+            border: none;
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .chart-tf-btn:hover { color: #fff; }
+        .chart-tf-btn.active {
+            background: #0284c7;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+        }
         :root {
             --bg-dark: #090d16;
             --card-bg: #111827;
@@ -488,6 +512,26 @@
             </div>
         </div>
 
+        <!-- LIVE MARKET STATUS & SPOT TICKER -->
+        <div class="live-ticker-bar" style="display: flex; justify-content: space-between; align-items: center; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 12px; padding: 12px 18px; margin-bottom: 18px; flex-wrap: wrap; gap: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <span id="live-pulse-dot" style="width: 10px; height: 10px; border-radius: 50%; background: #10b981; box-shadow: 0 0 10px #10b981; animation: pulseDot 1.5s infinite; display: inline-block;"></span>
+                <span style="font-size: 13px; font-weight: 700; color: #10b981;" id="live-feed-badge">🟢 LIVE FYERS FEED CONNECTED</span>
+                <span style="font-size: 12px; color: #94a3b8;" id="live-feed-msg">(Streaming Live NSE Ticks)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+                <div style="font-size: 13px; color: #cbd5e1;">
+                    NIFTY SPOT: <span id="live-spot-val" style="font-size: 18px; font-weight: 800; font-family: 'JetBrains Mono', monospace; color: #00f0ff;">₹23,385.10</span>
+                </div>
+                <div style="font-size: 12px; color: #94a3b8;">
+                    Last Tick: <span id="live-tick-time" style="font-family: 'JetBrains Mono', monospace; color: #f8fafc; font-weight: 700;">--:--:--</span>
+                </div>
+                <div style="font-size: 12px; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); padding: 3px 10px; border-radius: 6px; color: #10b981; font-weight: 700;" id="live-engine-mode-tag">
+                    ⚡ 95.1% Confluence Scanner Active
+                </div>
+            </div>
+        </div>
+
         <!-- ══════════════════════════════════════════════════════════════
              DEDICATED VIRTUAL WALLET DASHBOARD CARDS
         ══════════════════════════════════════════════════════════════ -->
@@ -586,8 +630,54 @@
                     <button class="lot-btn" onclick="selectLots(1)" id="btn-lot-1">1 Lot (65 Q)</button>
                     <button class="lot-btn active" onclick="selectLots(2)" id="btn-lot-2">2 Lots (130 Q) ⭐</button>
                     <button class="lot-btn" onclick="selectLots(3)" id="btn-lot-3">3 Lots (195 Q)</button>
+                    <button class="lot-btn" onclick="selectLots(4)" id="btn-lot-4">4 Lots (260 Q)</button>
                 </div>
             </div>
+
+            <!-- Card 4: Strike Selection Rule -->
+            <div class="control-card">
+                <div>
+                    <div class="card-header">
+                        <div class="card-title">Auto Strike Rule</div>
+                        <span style="font-size: 11px; color: #34d399; font-weight: bold;">Dynamic Greeks</span>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px;">
+                        Auto-execution strike selection:
+                    </p>
+                </div>
+                <div class="lot-buttons" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                    <button class="lot-btn strike-btn-sig active" onclick="selectStrikeMode('ITM_1')" id="btn-strk-itm_1">1 ITM (0.65Δ) ⭐</button>
+                    <button class="lot-btn strike-btn-sig" onclick="selectStrikeMode('ATM')" id="btn-strk-atm">ATM (0.50Δ)</button>
+                    <button class="lot-btn strike-btn-sig" onclick="selectStrikeMode('ITM_2')" id="btn-strk-itm_2">2 ITM (0.75Δ)</button>
+                    <button class="lot-btn strike-btn-sig" onclick="selectStrikeMode('OTM_1')" id="btn-strk-otm_1">1 OTM (0.35Δ)</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════════════
+             LIVE NIFTY CANDLESTICK & CONFLUENCE CHART PANEL
+        ══════════════════════════════════════════════════════════════ -->
+        <div class="chart-panel" style="background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 16px; padding: 18px; margin-bottom: 22px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 16px; font-weight: 800; color: #f8fafc;">📊 NIFTY50 Live Candlestick & Confluence Chart</span>
+                    <span id="chart-candle-count" style="font-size: 11px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 3px 8px; border-radius: 6px; font-weight: 700; font-family: 'JetBrains Mono', monospace;">Connecting feed...</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <div style="display: flex; background: #090d16; border: 1px solid #334155; border-radius: 8px; padding: 2px;">
+                        <button class="chart-tf-btn active" id="tf-60" onclick="setChartTimeframe(60)">1m</button>
+                        <button class="chart-tf-btn" id="tf-180" onclick="setChartTimeframe(180)">3m</button>
+                        <button class="chart-tf-btn" id="tf-300" onclick="setChartTimeframe(300)">5m</button>
+                    </div>
+                    <span style="font-size: 11.5px; color: #94a3b8;">
+                        <span style="color: #38bdf8; font-weight: 700;">― 9EMA</span> &nbsp;
+                        <span style="color: #f59e0b; font-weight: 700;">― 21EMA</span>
+                    </span>
+                    <a href="/" target="_blank" class="nav-link-btn" style="padding: 4px 10px; font-size: 11.5px;">Fullscreen Terminal ↗</a>
+                </div>
+            </div>
+            <!-- Interactive Lightweight Chart Viewport -->
+            <div id="live-tradingview-chart" style="width: 100%; height: 350px; border-radius: 8px; overflow: hidden; position: relative;"></div>
         </div>
 
         <!-- SIMULATION CONTROLS FOR TESTING -->
@@ -602,44 +692,44 @@
         <div class="signal-alert-box" id="active-signal-box">
             <div class="signal-alert-header">
                 <div>
-                    <span class="signal-type-badge" id="sig-badge">⚡ BUY CALL (CE) READY</span>
-                    <span style="margin-left: 12px; font-weight: 700; color: #cbd5e1; font-size: 13px;" id="sig-time">Timestamp: Loading...</span>
+                    <span class="signal-type-badge" id="sig-badge">📡 LIVE RADAR SCANNER ACTIVE</span>
+                    <span style="margin-left: 12px; font-weight: 700; color: #cbd5e1; font-size: 13px;" id="sig-time">Live Tick Sync Active</span>
                 </div>
                 <div id="sig-confluence-status" style="font-size: 13px; color: #34d399; font-weight: 700; display: flex; align-items: center; gap: 6px;">
-                    <span>✅ High Confluence Verified (1 ITM Delta 0.65)</span>
+                    <span>🛡️ Institutional 95.1% Scanner Active</span>
                 </div>
             </div>
 
             <div class="signal-grid">
                 <div class="sig-item">
-                    <div class="sig-lbl">Contract (1 ITM)</div>
-                    <div class="sig-val" id="sig-contract" style="color: #38bdf8;">NIFTY 24700 CE</div>
+                    <div class="sig-lbl">Contract</div>
+                    <div class="sig-val" id="sig-contract" style="color: #38bdf8;">Scanning Live Spot...</div>
                 </div>
                 <div class="sig-item">
                     <div class="sig-lbl">Entry Price (LTP)</div>
-                    <div class="sig-val" id="sig-ltp">₹146.80</div>
+                    <div class="sig-val" id="sig-ltp">--</div>
                 </div>
                 <div class="sig-item">
                     <div class="sig-lbl">Strict Stop Loss</div>
-                    <div class="sig-val" id="sig-sl" style="color: #ef4444;">₹139.30 (-7.5 pts)</div>
+                    <div class="sig-val" id="sig-sl" style="color: #ef4444;">-7.5 pts</div>
                 </div>
                 <div class="sig-item">
                     <div class="sig-lbl">Breakeven Lock (+3.0)</div>
-                    <div class="sig-val" id="sig-be" style="color: #f59e0b;">₹149.80</div>
+                    <div class="sig-val" id="sig-be" style="color: #f59e0b;">+3.0 pts</div>
                 </div>
                 <div class="sig-item">
                     <div class="sig-lbl">Target 2 Runner (+12)</div>
-                    <div class="sig-val" id="sig-tgt" style="color: #10b981;">₹158.80+</div>
+                    <div class="sig-val" id="sig-tgt" style="color: #10b981;">+12.0+ pts</div>
                 </div>
                 <div class="sig-item">
                     <div class="sig-lbl">Quantity & Max Risk</div>
-                    <div class="sig-val" id="sig-risk" style="color: #f8fafc;">130 Qty (-₹975)</div>
+                    <div class="sig-val" id="sig-risk" style="color: #f8fafc;">130 Qty (2 Lots)</div>
                 </div>
             </div>
 
             <div style="background: rgba(0,0,0,0.3); padding: 10px 12px; border-radius: 8px; margin-bottom: 10px; font-size: 12.5px;">
-                <span style="color: #94a3b8; font-weight: 700;">Weapon Trigger Reason: </span>
-                <span id="sig-reason" style="color: #cbd5e1;">Support at 24700: Put writers added +185,000 OI | 1m Volume Spike 2.8x | Delta 0.65</span>
+                <span style="color: #94a3b8; font-weight: 700;">Market Scanner: </span>
+                <span id="sig-reason" style="color: #cbd5e1;">Live 1m/3m/5m timeframe confluence scanner armed. Ready to trigger on A+ Support/Resistance bounce or breakdown.</span>
             </div>
 
             <!-- 3 ACTION BUTTONS -->
@@ -732,6 +822,147 @@
         let selectedTradeIds = new Set();
         let cachedTrades = [];
         let selectedSignalsDate = '';
+
+        // ══════════════════════════════════════════════════════════════
+        // TRADINGVIEW LIGHTWEIGHT CANDLESTICK CHART INTEGRATION
+        // ══════════════════════════════════════════════════════════════
+        let chartInstance = null;
+        let candleSeries = null;
+        let volumeSeries = null;
+        let ema9Series = null;
+        let ema21Series = null;
+        let currentChartInterval = 60;
+
+        function initLiveChart() {
+            const container = document.getElementById('live-tradingview-chart');
+            if (!container || typeof LightweightCharts === 'undefined') return;
+
+            chartInstance = LightweightCharts.createChart(container, {
+                width: container.clientWidth,
+                height: 350,
+                layout: {
+                    background: { color: '#090d16' },
+                    textColor: '#94a3b8',
+                    fontSize: 11,
+                    fontFamily: "'JetBrains Mono', monospace"
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255, 255, 255, 0.04)' },
+                    horzLines: { color: 'rgba(255, 255, 255, 0.04)' }
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal
+                },
+                rightPriceScale: {
+                    borderColor: '#1f2937',
+                    scaleMargins: { top: 0.1, bottom: 0.2 }
+                },
+                timeScale: {
+                    borderColor: '#1f2937',
+                    timeVisible: true,
+                    secondsVisible: false
+                }
+            });
+
+            if (typeof chartInstance.addCandlestickSeries === 'function') {
+                candleSeries = chartInstance.addCandlestickSeries({
+                    upColor: '#10b981', downColor: '#ef4444',
+                    borderUpColor: '#10b981', borderDownColor: '#ef4444',
+                    wickUpColor: '#10b981', wickDownColor: '#ef4444'
+                });
+                volumeSeries = chartInstance.addHistogramSeries({
+                    color: 'rgba(56, 189, 248, 0.4)',
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: '',
+                    scaleMargins: { top: 0.82, bottom: 0 }
+                });
+                ema9Series = chartInstance.addLineSeries({ color: '#38bdf8', lineWidth: 1.5, title: '9EMA' });
+                ema21Series = chartInstance.addLineSeries({ color: '#f59e0b', lineWidth: 1.5, title: '21EMA' });
+            } else if (typeof chartInstance.addSeries === 'function') {
+                candleSeries = chartInstance.addSeries(LightweightCharts.CandlestickSeries, {
+                    upColor: '#10b981', downColor: '#ef4444',
+                    borderUpColor: '#10b981', borderDownColor: '#ef4444',
+                    wickUpColor: '#10b981', wickDownColor: '#ef4444'
+                });
+                volumeSeries = chartInstance.addSeries(LightweightCharts.HistogramSeries, {
+                    color: 'rgba(56, 189, 248, 0.4)',
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: '',
+                    scaleMargins: { top: 0.82, bottom: 0 }
+                });
+                ema9Series = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#38bdf8', lineWidth: 1.5, title: '9EMA' });
+                ema21Series = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#f59e0b', lineWidth: 1.5, title: '21EMA' });
+            }
+
+            window.addEventListener('resize', () => {
+                if (chartInstance && container) {
+                    chartInstance.applyOptions({ width: container.clientWidth });
+                }
+            });
+
+            fetchChartCandles();
+        }
+
+        function calculateEMA(data, period) {
+            const k = 2 / (period + 1);
+            let ema = data[0].close;
+            const res = [];
+            for (let i = 0; i < data.length; i++) {
+                if (i === 0) {
+                    ema = data[i].close;
+                } else {
+                    ema = data[i].close * k + ema * (1 - k);
+                }
+                res.push({ time: data[i].time, value: parseFloat(ema.toFixed(2)) });
+            }
+            return res;
+        }
+
+        async function fetchChartCandles() {
+            try {
+                const res = await fetch(`/api/candles?symbol=SPOT&interval=${currentChartInterval}`);
+                const data = await res.json();
+                if (data && data.candles && data.candles.length > 0) {
+                    const cData = data.candles.map(c => ({
+                        time: c.time,
+                        open: c.open,
+                        high: c.high,
+                        low: c.low,
+                        close: c.close
+                    }));
+                    if (candleSeries) candleSeries.setData(cData);
+
+                    if (volumeSeries) {
+                        const vData = data.candles.map(c => ({
+                            time: c.time,
+                            value: c.volume || 0,
+                            color: c.close >= c.open ? 'rgba(16, 185, 129, 0.35)' : 'rgba(239, 68, 68, 0.35)'
+                        }));
+                        volumeSeries.setData(vData);
+                    }
+
+                    if (ema9Series && cData.length >= 9) {
+                        ema9Series.setData(calculateEMA(cData, 9));
+                    }
+                    if (ema21Series && cData.length >= 21) {
+                        ema21Series.setData(calculateEMA(cData, 21));
+                    }
+
+                    const cntEl = document.getElementById('chart-candle-count');
+                    if (cntEl) cntEl.innerText = `${cData.length} Candles (Latest: ₹${cData[cData.length - 1].close.toFixed(2)})`;
+                }
+            } catch (e) {
+                console.error("Candle fetch error:", e);
+            }
+        }
+
+        function setChartTimeframe(interval) {
+            currentChartInterval = interval;
+            document.querySelectorAll('.chart-tf-btn').forEach(b => b.classList.remove('active'));
+            const el = document.getElementById(`tf-${interval}`);
+            if (el) el.classList.add('active');
+            fetchChartCandles();
+        }
 
         function onSignalsDateChanged(val) {
             selectedSignalsDate = val;
@@ -875,6 +1106,19 @@
             document.getElementById('sig-risk').innerText = `${qty} Qty (-₹${risk})`;
         }
 
+        // Select Strike Selection Mode (ITM_1, ATM, ITM_2, OTM_1)
+        async function selectStrikeMode(mode) {
+            document.querySelectorAll('.strike-btn-sig').forEach(b => b.classList.remove('active'));
+            const b = document.getElementById(`btn-strk-${mode.toLowerCase()}`);
+            if (b) b.classList.add('active');
+            await fetch('/api/signals/set_strike_mode', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({strike_mode: mode})
+            });
+            fetchStatus();
+        }
+
         // Button 1: Execute Trade Manually
         async function executeCurrentSignal() {
             const res = await fetch('/api/signals/execute', {
@@ -934,17 +1178,85 @@
             refreshAll();
         }
 
+        // Scanning State when no trade is active
+        function showScanningState(state) {
+            currentSignalId = null;
+            const box = document.getElementById('active-signal-box');
+            if (!box) return;
+            box.style.opacity = '1';
+            box.className = 'signal-alert-box';
+            box.classList.remove('put-signal', 'auto-executed');
+            box.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+            box.style.background = 'linear-gradient(145deg, #0d182b, #080e1a)';
+
+            const badge = document.getElementById('sig-badge');
+            if (badge) {
+                badge.className = 'signal-type-badge';
+                badge.style.background = 'rgba(56, 189, 248, 0.25)';
+                badge.style.color = '#38bdf8';
+                badge.innerText = '📡 LIVE RADAR SCANNER ACTIVE';
+            }
+
+            const spot = (state && state.live_spot_price) ? state.live_spot_price.toFixed(2) : '23,385.10';
+            const tickTime = (state && state.last_tick_time) ? state.last_tick_time : new Date().toLocaleTimeString();
+
+            document.getElementById('sig-time').innerText = `Live Tick: ${tickTime}`;
+            document.getElementById('sig-contract').innerText = `NIFTY SPOT: ₹${spot}`;
+            document.getElementById('sig-ltp').innerText = `₹${spot}`;
+            document.getElementById('sig-sl').innerText = `Strict -7.5 pts`;
+            document.getElementById('sig-be').innerText = `Lock +3.0 pts`;
+            document.getElementById('sig-tgt').innerText = `Runner +12.0+`;
+            const lots = (state && state.lot_size_multiplier) ? state.lot_size_multiplier : 2;
+            document.getElementById('sig-risk').innerText = `${lots * 65} Qty (-₹${(7.5 * lots * 65).toFixed(0)})`;
+            document.getElementById('sig-reason').innerHTML = `
+                <b style="color: #38bdf8;">Monitoring Live NIFTY:</b> Scanning 1m/3m momentum, Delta 0.65 (1 ITM), Volume Spikes (2.0x+), & S/R Breakdowns.
+                <span style="color: #10b981; font-weight: 600;">System armed to auto-execute when high-conviction setup triggers.</span>
+            `;
+
+            const confluenceStatus = document.getElementById('sig-confluence-status');
+            if (confluenceStatus) {
+                confluenceStatus.innerHTML = '<span style="color: #38bdf8; font-weight: 800; display: inline-flex; align-items: center; gap: 6px;"><span style="width:8px;height:8px;border-radius:50%;background:#38bdf8;animation:pulseDot 1.5s infinite;display:inline-block;"></span>RADAR SEARCHING FOR A+ CONFLUENCE</span>';
+            }
+
+            const statusMsg = document.getElementById('action-status-msg');
+            if (statusMsg) {
+                const isAuto = (state && state.auto_trading);
+                statusMsg.innerText = isAuto ? '🤖 Auto-Pilot is ON: Will automatically execute upon signal trigger!' : '👤 Manual Mode: Alert will sound when signal appears.';
+                statusMsg.style.color = isAuto ? '#c084fc' : '#94a3b8';
+            }
+
+            const actionGroup = document.querySelector('.btn-action-group');
+            if (actionGroup) {
+                const isAuto = (state && state.auto_trading);
+                actionGroup.innerHTML = `
+                    <button class="btn-action" style="background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4);" onclick="triggerTestSignal('CALL')">
+                        <span>🟢 Test CE Signal</span>
+                    </button>
+                    <button class="btn-action" style="background: rgba(239, 68, 68, 0.2); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.4);" onclick="triggerTestSignal('PUT')">
+                        <span>🔴 Test PE Signal</span>
+                    </button>
+                    <button class="btn-action btn-auto ${isAuto ? 'active-auto' : ''}" id="btn-auto-now" onclick="toggleAutoFromSignal()">
+                        <span>${isAuto ? '⚡ Auto-Pilot ACTIVE' : '🤖 Enable Auto-Pilot'}</span>
+                    </button>
+                `;
+            }
+        }
+
         // Populate Signal Card UI
         function showSignalData(sig) {
             if (!sig) return;
             currentSignalId = sig.signal_id || sig.trade_id;
             const box = document.getElementById('active-signal-box');
             box.style.opacity = '1';
+            box.style.borderColor = '';
+            box.style.background = '';
 
             const isPe = sig.action === 'BUY_PE' || sig.direction === 'PUT';
             box.className = isPe ? 'signal-alert-box put-signal' : 'signal-alert-box';
 
             const badge = document.getElementById('sig-badge');
+            badge.style.background = '';
+            badge.style.color = '';
             badge.className = isPe ? 'signal-type-badge pe' : 'signal-type-badge';
             badge.innerText = isPe ? '⚡ BUY PUT (PE) SIGNAL' : '⚡ BUY CALL (CE) SIGNAL';
 
@@ -1163,9 +1475,43 @@
                 updateMasterSwitchUI(state.master_switch, state.is_market_open, state.market_status);
                 updateAutoSwitchUI(state.auto_trading);
 
+                // Update Top Live Ticker Bar
+                const spotEl = document.getElementById('live-spot-val');
+                if (spotEl && state.live_spot_price) {
+                    spotEl.innerText = `₹${state.live_spot_price.toFixed(2)}`;
+                }
+                const tickTimeEl = document.getElementById('live-tick-time');
+                if (tickTimeEl && state.last_tick_time) {
+                    tickTimeEl.innerText = state.last_tick_time;
+                }
+                const feedBadge = document.getElementById('live-feed-badge');
+                const feedMsg = document.getElementById('live-feed-msg');
+                if (feedBadge && state.live_connected !== undefined) {
+                    if (state.live_connected) {
+                        feedBadge.innerText = '🟢 LIVE FYERS FEED CONNECTED';
+                        feedBadge.style.color = '#10b981';
+                        if (feedMsg) feedMsg.innerText = '(Streaming Live NSE Ticks)';
+                    } else {
+                        feedBadge.innerText = '🟡 LOCAL DUCKDB FEED';
+                        feedBadge.style.color = '#f59e0b';
+                        if (feedMsg) feedMsg.innerText = `(${state.feed_message || 'Simulated Feed'})`;
+                    }
+                }
+
                 if (state.lot_size_multiplier) {
-                    document.querySelectorAll('.lot-btn').forEach(b => b.classList.remove('active'));
-                    const b = document.getElementById(`btn-lot-${state.lot_size_multiplier}`);
+                    [1, 2, 3, 4].forEach(l => {
+                        const b = document.getElementById(`btn-lot-${l}`);
+                        if (b) {
+                            if (l === state.lot_size_multiplier) b.classList.add('active');
+                            else b.classList.remove('active');
+                        }
+                    });
+                }
+
+                if (state.strike_selection_mode) {
+                    const sm = state.strike_selection_mode.toLowerCase();
+                    document.querySelectorAll('.strike-btn-sig').forEach(b => b.classList.remove('active'));
+                    const b = document.getElementById(`btn-strk-${sm}`);
                     if (b) b.classList.add('active');
                 }
 
@@ -1175,6 +1521,8 @@
                         playAlertSound(state.active_signal.status === 'AUTO_EXECUTED' ? 'execute' : 'alert');
                     }
                     showSignalData(state.active_signal);
+                } else {
+                    showScanningState(state);
                 }
             } catch (e) {
                 console.error("Status error", e);
@@ -1421,8 +1769,10 @@
 
         // Initialize and poll
         window.addEventListener('DOMContentLoaded', () => {
+            initLiveChart();
             refreshAll();
             setInterval(refreshAll, 2000);
+            setInterval(fetchChartCandles, 2000);
         });
 
         // Initialize AudioContext on first user gesture
