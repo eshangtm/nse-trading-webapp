@@ -5,8 +5,13 @@
 import os
 import time
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Any, Optional
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_now() -> datetime:
+    return datetime.now(IST)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 from user_database import user_db
@@ -93,12 +98,12 @@ class MultiUserTradingManager:
             open_positions = [dict(r) for r in cursor.fetchall()]
 
             # 2. Fetch today's closed trades
-            today_str = datetime.now().strftime("%Y-%m-%d")
+            today_str = get_ist_now().strftime("%Y-%m-%d")
             cursor.execute("""
                 SELECT * FROM user_trades 
-                WHERE user_id = ? AND date = ? 
+                WHERE user_id = ? AND (date = ? OR date LIKE ? OR entry_timestamp LIKE ? OR exit_timestamp LIKE ?)
                 ORDER BY id DESC
-            """, (user_id, today_str))
+            """, (user_id, today_str, f"{today_str}%", f"{today_str}%", f"{today_str}%"))
             today_trades = [dict(r) for r in cursor.fetchall()]
 
             # 3. Fetch all-time trades summary
@@ -220,7 +225,7 @@ class MultiUserTradingManager:
                     "message": f"Insufficient Virtual Margin! Needed: ₹{margin_required:,.2f} | Available: ₹{available_margin:,.2f}"
                 }
 
-            now_dt = datetime.now()
+            now_dt = get_ist_now()
             ts = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             trade_id = f"TRD_U{user_id}_{now_dt.strftime('%Y%m%d_%H%M%S_%f')}"
             contract = f"NIFTY {int(strike)} {option_type}"
@@ -312,7 +317,7 @@ class MultiUserTradingManager:
             net_pnl = round(gross_pnl - brokerage - slippage_rupees, 2)
             pnl_pct = round((pnl_pts / entry_price * 100.0), 2) if entry_price > 0 else 0.0
 
-            now_dt = datetime.now()
+            now_dt = get_ist_now()
             exit_ts = now_dt.strftime("%Y-%m-%d %H:%M:%S")
             date_str = now_dt.strftime("%Y-%m-%d")
             s_spot = float(exit_spot) if exit_spot else float(pos["entry_spot"])

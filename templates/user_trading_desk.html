@@ -523,11 +523,12 @@
     <div class="card">
         <div class="card-title" style="flex-wrap: wrap; gap: 10px;">
             <span>📜 Closed Trades Ledger & Persistent History</span>
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                 <label style="font-size: 11px; color: var(--text-muted);">Filter Date:</label>
-                <input type="date" id="tradeDateFilter" style="background: #090d16; border: 1px solid #334155; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 11px;">
+                <input type="date" id="tradeDateFilter" onchange="loadTradesWithFilter()" onkeyup="if(event.key==='Enter')loadTradesWithFilter()" style="background: #090d16; border: 1px solid #334155; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 11px;">
                 <button class="btn-action" style="font-size: 11px; padding: 4px 10px;" onclick="loadTradesWithFilter()">Filter</button>
                 <button class="btn-action" style="font-size: 11px; padding: 4px 10px;" onclick="resetTradeFilter()">Show All</button>
+                <button class="btn-action" style="font-size: 11px; padding: 4px 10px; background: rgba(56, 189, 248, 0.15); border-color: #38bdf8; color: #38bdf8;" onclick="exportTradesCsv()">📥 Export CSV</button>
             </div>
         </div>
         <div class="table-wrap">
@@ -785,29 +786,7 @@
                 `).join('');
             }
 
-            // Render Closed Trades
-            const closed = data.recent_trades || [];
-            const closedBody = document.getElementById('closedTradesBody');
-            if (closed.length === 0) {
-                closedBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No closed trades today.</td></tr>';
-            } else {
-                closedBody.innerHTML = closed.map(t => `
-                    <tr>
-                        <td>${t.exit_timestamp ? t.exit_timestamp.substring(11, 19) : '--'}</td>
-                        <td style="font-weight: 700; color: ${t.direction === 'CALL' ? '#34d399' : '#f87171'}">${t.contract}</td>
-                        <td>${t.lots} (${t.quantity})</td>
-                        <td>₹${t.entry_price.toFixed(2)}</td>
-                        <td>₹${t.exit_price.toFixed(2)}</td>
-                        <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)}</td>
-                        <td style="color: var(--text-muted);">-₹${t.brokerage.toFixed(2)}</td>
-                        <td style="color: #f59e0b;">-₹${(t.slippage || 0).toFixed(2)}</td>
-                        <td style="font-weight: 800; color: ${t.net_pnl >= 0 ? '#34d399' : '#f87171'}">
-                            ${t.net_pnl >= 0 ? '+₹' : '₹'}${t.net_pnl.toFixed(2)}
-                        </td>
-                        <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${t.exit_reason}</span></td>
-                    </tr>
-                `).join('');
-            }
+            // Closed Trades Ledger is managed independently by loadTradesWithFilter so user filters never get overwritten!
         } catch (err) { console.error(err); }
     }
 
@@ -1077,10 +1056,14 @@
     }
 
     // ── Date Filtered Trades Ledger (Persistent Online) ────────────
+    let currentFilteredDate = '';
+
     async function loadTradesWithFilter() {
-        const dateVal = document.getElementById('tradeDateFilter').value;
+        const dateInput = document.getElementById('tradeDateFilter');
+        const dateVal = dateInput.value ? dateInput.value.trim() : '';
+        currentFilteredDate = dateVal;
         try {
-            const url = dateVal ? `/api/user/trades?date=${dateVal}` : '/api/user/trades';
+            const url = dateVal ? `/api/user/trades?date=${encodeURIComponent(dateVal)}` : '/api/user/trades';
             const res = await fetch(url);
             const data = await res.json();
             if (data.status === 'ok') {
@@ -1091,31 +1074,47 @@
 
     function resetTradeFilter() {
         document.getElementById('tradeDateFilter').value = '';
+        currentFilteredDate = '';
         loadTradesWithFilter();
+    }
+
+    function exportTradesCsv() {
+        const dateVal = document.getElementById('tradeDateFilter').value;
+        const url = dateVal ? `/api/user/trades/export_csv?date=${encodeURIComponent(dateVal)}` : '/api/user/trades/export_csv';
+        window.location.href = url;
     }
 
     function renderTradesTable(trades) {
         const closedBody = document.getElementById('closedTradesBody');
         if (!trades || trades.length === 0) {
-            closedBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 14px;">No closed trades found for this filter.</td></tr>';
+            closedBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 14px;">No closed trades found for selected date.</td></tr>';
             return;
         }
-        closedBody.innerHTML = trades.map(t => `
+        closedBody.innerHTML = trades.map(t => {
+            const displayTime = t.exit_timestamp || t.entry_timestamp || t.date || '--';
+            const entryP = Number(t.entry_price || 0).toFixed(2);
+            const exitP = Number(t.exit_price || 0).toFixed(2);
+            const pnlPts = Number(t.pnl_pts || 0);
+            const netPnl = Number(t.net_pnl || 0);
+            const brok = Number(t.brokerage || 0).toFixed(2);
+            const slip = Number(t.slippage || 0).toFixed(2);
+            return `
             <tr>
-                <td>${t.exit_timestamp ? t.exit_timestamp : t.date}</td>
+                <td style="font-family: 'JetBrains Mono', monospace; font-size: 11px; white-space: nowrap;">${displayTime}</td>
                 <td style="font-weight: 700; color: ${t.direction === 'CALL' ? '#34d399' : '#f87171'}">${t.contract}</td>
                 <td>${t.lots} (${t.quantity})</td>
-                <td>₹${t.entry_price.toFixed(2)}</td>
-                <td>₹${t.exit_price.toFixed(2)}</td>
-                <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)} pts</td>
-                <td style="color: var(--text-muted);">-₹${(t.brokerage || 0).toFixed(2)}</td>
-                <td style="color: #f59e0b;">-₹${(t.slippage || 0).toFixed(2)}</td>
-                <td style="font-weight: 800; color: ${t.net_pnl >= 0 ? '#34d399' : '#f87171'}">
-                    ${t.net_pnl >= 0 ? '+₹' : '₹'}${t.net_pnl.toFixed(2)}
+                <td>₹${entryP}</td>
+                <td>₹${exitP}</td>
+                <td style="font-weight: 700; color: ${pnlPts >= 0 ? '#34d399' : '#f87171'}">${pnlPts >= 0 ? '+' : ''}${pnlPts.toFixed(2)} pts</td>
+                <td style="color: var(--text-muted);">-₹${brok}</td>
+                <td style="color: #f59e0b;">-₹${slip}</td>
+                <td style="font-weight: 800; color: ${netPnl >= 0 ? '#34d399' : '#f87171'}">
+                    ${netPnl >= 0 ? '+₹' : '₹'}${netPnl.toFixed(2)}
                 </td>
                 <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${t.exit_reason || 'CLOSED'}</span></td>
             </tr>
-        `).join('');
+        `;
+        }).join('');
     }
 
     // Initialize desk
@@ -1130,6 +1129,7 @@
     setInterval(loadMarketAnalysis, 5000);
     setInterval(loadPortfolio, 2000);
     setInterval(pollPendingAlerts, 2000);
+    setInterval(loadTradesWithFilter, 5000);
 </script>
 
 </body>

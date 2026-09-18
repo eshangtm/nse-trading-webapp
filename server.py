@@ -758,6 +758,29 @@ def api_get_user_trades(date: Optional[str] = None, date_from: Optional[str] = N
     trades = user_db.get_user_trades_by_filter(user["id"], date=date, date_from=date_from, date_to=date_to)
     return {"status": "ok", "trades": trades}
 
+@app.get("/api/user/trades/export_csv")
+def api_user_trades_export_csv(date: Optional[str] = None, user: dict = Depends(require_auth)):
+    """Exports user's filtered or complete trade ledger as downloadable CSV."""
+    import io, csv
+    from fastapi.responses import Response
+    trades = user_db.get_user_trades_by_filter(user["id"], date=date, limit=1000)
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["trade_id", "date", "entry_timestamp", "exit_timestamp", "contract", "strike", "option_type", "lots", "quantity", "entry_price", "exit_price", "exit_reason", "pnl_pts", "gross_pnl", "brokerage", "slippage", "net_pnl", "pnl_pct", "status"])
+    for t in trades:
+        writer.writerow([
+            t.get("trade_id"), t.get("date"), t.get("entry_timestamp"), t.get("exit_timestamp"),
+            t.get("contract"), t.get("strike"), t.get("option_type"), t.get("lots"), t.get("quantity"),
+            t.get("entry_price"), t.get("exit_price"), t.get("exit_reason"), t.get("pnl_pts"),
+            t.get("gross_pnl"), t.get("brokerage"), t.get("slippage", 0), t.get("net_pnl"), t.get("pnl_pct"), t.get("status")
+        ])
+    filename = f"trades_{user.get('username', 'user')}_{date or 'all'}.csv"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
 # ── Live Market Indicators & AOC Analysis ───────────────────────────
 @app.get("/api/market/analysis")
 def api_market_analysis():

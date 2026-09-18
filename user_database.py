@@ -586,17 +586,18 @@ class UserDatabase:
             params: List[Any] = [user_id]
 
             if date:
-                query += " AND date = ?"
-                params.append(date)
+                clean_date = date.strip()
+                query += " AND (date = ? OR date LIKE ? OR entry_timestamp LIKE ? OR exit_timestamp LIKE ?)"
+                params.extend([clean_date, f"{clean_date}%", f"{clean_date}%", f"{clean_date}%"])
             elif date_from and date_to:
-                query += " AND date BETWEEN ? AND ?"
-                params.extend([date_from, date_to])
+                query += " AND (date BETWEEN ? AND ? OR exit_timestamp BETWEEN ? AND ?)"
+                params.extend([date_from, date_to, f"{date_from} 00:00:00", f"{date_to} 23:59:59"])
             elif date_from:
-                query += " AND date >= ?"
-                params.append(date_from)
+                query += " AND (date >= ? OR exit_timestamp >= ?)"
+                params.extend([date_from, f"{date_from} 00:00:00"])
             elif date_to:
-                query += " AND date <= ?"
-                params.append(date_to)
+                query += " AND (date <= ? OR exit_timestamp <= ?)"
+                params.extend([date_to, f"{date_to} 23:59:59"])
 
             query += " ORDER BY id DESC LIMIT ?"
             params.append(limit)
