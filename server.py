@@ -848,6 +848,118 @@ def api_admin_update_profile(user_id: int, payload: dict, admin: dict = Depends(
         capital=payload.get("capital")
     )
 
+@app.get("/api/admin/users/{user_id}/full_details")
+def api_admin_user_full_details(user_id: int, admin: dict = Depends(require_admin)):
+    """Returns complete user portfolio, open positions, recent trades, settings & stats."""
+    user = user_db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    portfolio = multi_user_trader.get_user_portfolio(user_id)
+    settings = user_db.get_user_settings(user_id)
+    all_trades = user_db.get_user_trades_by_filter(user_id)
+    
+    total_trades = len(all_trades)
+    wins = [t for t in all_trades if float(t.get("net_pnl", 0)) > 0]
+    losses = [t for t in all_trades if float(t.get("net_pnl", 0)) <= 0]
+    win_count = len(wins)
+    loss_count = len(losses)
+    win_rate = round((win_count / total_trades * 100), 1) if total_trades > 0 else 0.0
+    total_realized_pnl = sum(float(t.get("net_pnl", 0)) for t in all_trades)
+    
+    return {
+        "status": "ok",
+        "user": {
+            "id": user["id"],
+            "username": user["username"],
+            "full_name": user["full_name"],
+            "email": user.get("email", ""),
+            "role": user["role"],
+            "status": user["status"],
+            "initial_capital": float(user["initial_capital"]),
+            "cash_balance": float(user["cash_balance"]),
+            "plain_password": user.get("plain_password", ""),
+            "created_at": str(user["created_at"])
+        },
+        "portfolio": {
+            "cash_balance": portfolio.get("cash_balance", 0.0),
+            "utilized_margin": portfolio.get("utilized_margin", 0.0),
+            "available_margin": portfolio.get("available_margin", 0.0),
+            "unrealized_pnl": portfolio.get("unrealized_pnl", 0.0),
+            "net_equity": portfolio.get("net_equity", 0.0),
+            "all_time_realized_pnl": total_realized_pnl,
+            "total_trades": total_trades,
+            "win_trades": win_count,
+            "loss_trades": loss_count,
+            "win_rate": win_rate,
+            "open_positions": portfolio.get("open_positions", [])
+        },
+        "settings": settings,
+        "recent_trades": all_trades
+    }
+
+@app.get("/api/admin/users/{user_id}/trades")
+def api_admin_user_trades(user_id: int, date: Optional[str] = None, admin: dict = Depends(require_admin)):
+    """Fetch trades for a specific user filtered by date."""
+    trades = user_db.get_user_trades_by_filter(user_id, date=date)
+    return {"status": "ok", "trades": trades}
+
+@app.get("/api/admin/users/{user_id}/export_csv")
+def api_admin_user_export_csv(user_id: int, admin: dict = Depends(require_admin)):
+    """Exports user's entire trade ledger as downloadable CSV."""
+    user = user_db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    trades = user_db.get_user_trades_by_filter(user_id)
+    import io
+    import csv
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["trade_id", "date", "entry_timestamp", "exit_timestamp", "contract", "strike", "option_type", "lots", "quantity", "entry_price", "exit_price", "exit_reason", "pnl_pts", "gross_pnl", "brokerage", "net_pnl", "pnl_pct", "status"])
+    for t in trades:
+        writer.writerow([
+            t.get("trade_id"), t.get("date"), t.get("entry_timestamp"), t.get("exit_timestamp"),
+            t.get("contract"), t.get("strike"), t.get("option_type"), t.get("lots"), t.get("quantity"),
+            t.get("entry_price"), t.get("exit_price"), t.get("exit_reason"), t.get("pnl_pts"),
+            t.get("gross_pnl"), t.get("brokerage"), t.get("net_pnl"), t.get("pnl_pct"), t.get("status")
+        ])
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=trades_{user['username']}_all.csv"}
+    )
+
+@app.post("/api/admin/users/{user_id}/save_settings")
+def api_admin_save_user_settings(user_id: int, payload: dict, admin: dict = Depends(require_admin)):
+    """Admin updates risk & execution settings for a specific user."""
+    return user_db.save_user_settings(
+        user_id=user_id,
+        auto_trade_enabled=int(payload.get("auto_trade_enabled", 0)),
+        lots=int(payload.get("lots", 1)),
+        trade_direction=str(payload.get("trade_direction", "BOTH")).upper(),
+        sl_pts=float(payload.get("sl_pts", 25.0)),
+        target_pts=float(payload.get("target_pts", 35.0)),
+        notifications_enabled=int(payload.get("notifications_enabled", 1)),
+        max_open_positions=int(payload.get("max_open_positions", 1))
+    )
+
+@app.get("/api/admin/impersonate/{user_id}")
+def api_admin_impersonate(user_id: int, response: Response, admin: dict = Depends(require_admin)):
+    """Allows admin to open the Trading Desk for any user in a new tab."""
+    user = user_db.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    token = user_db.create_session(user["id"])
+    redirect_resp = RedirectResponse(url="/trade", status_code=302)
+    redirect_resp.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        max_age=86400 * 7,
+        samesite="lax"
+    )
+    return redirect_resp
+
 @app.get("/api/admin/live_positions")
 def api_admin_live_positions(admin: dict = Depends(require_admin)):
     """Real-time stream of all open positions across all users."""

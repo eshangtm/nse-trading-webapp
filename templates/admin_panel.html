@@ -632,6 +632,200 @@
     </div>
 </div>
 
+<!-- Modal: Full User Account & Trades Inspector -->
+<div class="modal-backdrop" id="accountDetailsModal">
+    <div class="modal" style="max-width: 1100px; width: 96%; max-height: 92vh; display: flex; flex-direction: column; padding: 22px 26px; border-radius: 16px; background: #0b1120; border: 1px solid #1e293b; box-shadow: 0 25px 60px rgba(0,0,0,0.9);">
+        <!-- Modal Top Bar -->
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 14px; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div style="width: 44px; height: 44px; border-radius: 10px; background: linear-gradient(135deg, #0284c7, #06b6d4); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 900; color: #fff;">
+                    👤
+                </div>
+                <div>
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <h3 id="detFullName" style="font-size: 19px; font-weight: 900; margin: 0; color: #fff;">User Name</h3>
+                        <span id="detUsernameBadge" style="font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #38bdf8; background: rgba(56, 189, 248, 0.12); padding: 2px 8px; border-radius: 6px; font-weight: 700;">@username</span>
+                        <span id="detRoleBadge" style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: #1e293b; color: #94a3b8;">user</span>
+                        <span id="detStatusBadge" class="badge-active">active</span>
+                    </div>
+                    <div style="font-size: 12px; color: #64748b; margin-top: 3px;">
+                        Account ID: #<span id="detUserId">--</span> &bull; Created: <span id="detCreatedAt">--</span> &bull; Password: <span id="detPassword" style="font-family: 'JetBrains Mono', monospace; color: #fbbf24; font-weight: 700;">--</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <a id="detDeskLink" href="#" target="_blank" class="btn-action" style="background: linear-gradient(135deg, #059669, #10b981); color: #060911; font-weight: 800; border: none; padding: 7px 14px; font-size: 12px; text-decoration: none;">
+                    ⚡ Open Trading Desk
+                </a>
+                <a id="detCsvLink" href="#" class="btn-action" style="background: rgba(255,255,255,0.06); border: 1px solid #334155; color: #38bdf8; padding: 7px 12px; font-size: 12px; text-decoration: none;">
+                    📥 Export CSV
+                </a>
+                <button class="btn-action btn-logout" style="padding: 6px 12px; font-size: 14px; font-weight: 700;" onclick="closeAccountDetailsModal()">
+                    ✕ Close
+                </button>
+            </div>
+        </div>
+
+        <!-- Scrollable Body -->
+        <div style="overflow-y: auto; flex: 1; padding-right: 4px;">
+            <!-- Financial Metric Cards -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 18px;">
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Initial Capital</div>
+                    <div id="detInitCap" style="font-size: 17px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">₹0.00</div>
+                </div>
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Available Cash</div>
+                    <div id="detCashBal" style="font-size: 17px; font-weight: 800; color: #38bdf8; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">₹0.00</div>
+                </div>
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Utilized Margin</div>
+                    <div id="detUtilMargin" style="font-size: 17px; font-weight: 800; color: #fbbf24; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">₹0.00</div>
+                </div>
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Net Equity</div>
+                    <div id="detNetEquity" style="font-size: 17px; font-weight: 800; color: #fff; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">₹0.00</div>
+                </div>
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Realized P&L</div>
+                    <div id="detRealizedPnl" style="font-size: 17px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">₹0.00</div>
+                </div>
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Floating P&L</div>
+                    <div id="detUnrealizedPnl" style="font-size: 17px; font-weight: 800; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">₹0.00</div>
+                </div>
+                <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 10px 12px;">
+                    <div style="font-size: 10.5px; text-transform: uppercase; color: #64748b; font-weight: 700;">Trades & Win Rate</div>
+                    <div id="detWinRate" style="font-size: 17px; font-weight: 800; color: #34d399; font-family: 'JetBrains Mono', monospace; margin-top: 3px;">0 (0%)</div>
+                </div>
+            </div>
+
+            <!-- Tabs Navigation -->
+            <div style="display: flex; gap: 8px; border-bottom: 1px solid #1e293b; margin-bottom: 16px;">
+                <button id="tabBtnPos" class="btn-action" style="border-radius: 8px 8px 0 0; background: #1e293b; color: #38bdf8; border-bottom: 2px solid #38bdf8; font-weight: 800; padding: 8px 16px;" onclick="switchUserTab('pos')">
+                    ⚡ Active Positions (<span id="detTabPosCount">0</span>)
+                </button>
+                <button id="tabBtnTrades" class="btn-action" style="border-radius: 8px 8px 0 0; background: transparent; color: #94a3b8; border-bottom: 2px solid transparent; font-weight: 800; padding: 8px 16px;" onclick="switchUserTab('trades')">
+                    📜 Trades History (<span id="detTabTradesCount">0</span>)
+                </button>
+                <button id="tabBtnSettings" class="btn-action" style="border-radius: 8px 8px 0 0; background: transparent; color: #94a3b8; border-bottom: 2px solid transparent; font-weight: 800; padding: 8px 16px;" onclick="switchUserTab('settings')">
+                    ⚙️ User Risk & Auto-Trading Rules
+                </button>
+            </div>
+
+            <!-- Tab 1: Active Open Positions -->
+            <div id="tabContentPos">
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Contract</th>
+                                <th>Type</th>
+                                <th>Lots / Qty</th>
+                                <th>Entry Spot</th>
+                                <th>Entry Price</th>
+                                <th>Live LTP</th>
+                                <th>Target</th>
+                                <th>Stop Loss</th>
+                                <th>Floating P&L (₹)</th>
+                                <th>TSL Stage</th>
+                                <th style="text-align: center;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detPositionsTableBody">
+                            <tr><td colspan="11" style="text-align: center; color: #64748b; padding: 24px;">No active open positions.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 2: Trades History -->
+            <div id="tabContentTrades" style="display: none;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 12px; color: #94a3b8; font-weight: 700;">Filter Date:</span>
+                        <input type="date" id="detTradeDateFilter" onchange="filterUserTradesDate(this.value)" style="background: #090d16; color: #fff; border: 1px solid #334155; padding: 4px 10px; border-radius: 6px; font-size: 12px;">
+                        <button class="btn-action" style="padding: 4px 10px; font-size: 11px;" onclick="document.getElementById('detTradeDateFilter').value=''; filterUserTradesDate('')">Show All Dates</button>
+                    </div>
+                    <span id="detTradesSummaryText" style="font-size: 12px; color: #38bdf8; font-weight: 700;">Showing all past trades</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Trade ID</th>
+                                <th>Date & Time</th>
+                                <th>Contract</th>
+                                <th>Type</th>
+                                <th>Lots / Qty</th>
+                                <th>Entry Price</th>
+                                <th>Exit Price</th>
+                                <th>Points</th>
+                                <th>Net P&L (₹)</th>
+                                <th>Exit Reason</th>
+                            </tr>
+                        </thead>
+                        <tbody id="detTradesTableBody">
+                            <tr><td colspan="10" style="text-align: center; color: #64748b; padding: 24px;">No trades recorded.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab 3: Risk & Auto-Trading Rules -->
+            <div id="tabContentSettings" style="display: none;">
+                <form id="detSettingsForm" onsubmit="handleSaveUserSettings(event)" style="background: #090d16; border: 1px solid #1e293b; border-radius: 12px; padding: 20px; max-width: 650px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div class="modal-field">
+                            <label>🤖 Automated Signal Trading</label>
+                            <select id="detSetAutoTrade">
+                                <option value="1">ON (Auto-Execute Signals)</option>
+                                <option value="0">OFF (Manual Alerts Only)</option>
+                            </select>
+                        </div>
+                        <div class="modal-field">
+                            <label>🎯 Trading Direction</label>
+                            <select id="detSetDirection">
+                                <option value="BOTH">BOTH (CALL & PUT)</option>
+                                <option value="CALL">CALL ONLY (Bullish)</option>
+                                <option value="PUT">PUT ONLY (Bearish)</option>
+                            </select>
+                        </div>
+                        <div class="modal-field">
+                            <label>📦 Default Lot Size</label>
+                            <input type="number" id="detSetLots" min="1" max="20" step="1" required>
+                        </div>
+                        <div class="modal-field">
+                            <label>🛡️ Max Open Positions</label>
+                            <input type="number" id="detSetMaxPos" min="1" max="10" step="1" required>
+                        </div>
+                        <div class="modal-field">
+                            <label>🛑 Stop Loss (Points)</label>
+                            <input type="number" id="detSetSlPts" min="5" max="150" step="1" required>
+                        </div>
+                        <div class="modal-field">
+                            <label>🎯 Target Profit (Points)</label>
+                            <input type="number" id="detSetTargetPts" min="5" max="300" step="1" required>
+                        </div>
+                    </div>
+                    <div class="modal-field" style="margin-top: 10px;">
+                        <label>🔔 Interactive Audio & Visual Alerts</label>
+                        <select id="detSetNotifications">
+                            <option value="1">ENABLED (Show Signal Popups & Sound)</option>
+                            <option value="0">DISABLED (Silent Mode)</option>
+                        </select>
+                    </div>
+                    <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+                        <button type="submit" class="btn-action btn-primary" style="padding: 8px 20px; font-weight: 800;">
+                            💾 Save Risk Rules For User
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     function openTokenModal() {
         document.getElementById('tokenModal').classList.add('open');
@@ -752,7 +946,11 @@
             tbody.innerHTML = users.map(u => `
                 <tr>
                     <td>#${u.id}</td>
-                    <td style="font-weight: 700; color: #38bdf8;">${u.username}</td>
+                    <td style="font-weight: 700; color: #38bdf8;">
+                        <a onclick="viewUserDetails(${u.id})" style="color: #38bdf8; text-decoration: underline; cursor: pointer;" title="Click to view full account details and all trades">
+                            ${u.username}
+                        </a>
+                    </td>
                     <td>
                         <div style="display: flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 13px;">
                             <span id="pwd_val_${u.id}" style="color: #94a3b8; font-weight: 600;">••••••••</span>
@@ -773,7 +971,13 @@
                     </td>
                     <td><span class="${u.status === 'active' ? 'badge-active' : 'badge-disabled'}">${u.status}</span></td>
                     <td>
-                        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center;">
+                            <button class="btn-action" style="padding: 4px 10px; font-size: 11px; background: rgba(56, 189, 248, 0.18); border-color: #38bdf8; color: #38bdf8; font-weight: 800;" onclick="viewUserDetails(${u.id})" title="View complete account details, open positions & trades history">
+                                👁️ View Trades & Account
+                            </button>
+                            <a href="/api/admin/impersonate/${u.id}" target="_blank" class="btn-action" style="padding: 4px 8px; font-size: 11px; background: rgba(16, 185, 129, 0.15); border-color: #10b981; color: #34d399; font-weight: 700; text-decoration: none;" title="Open Trading Desk as this user in new tab">
+                                ⚡ Desk
+                            </a>
                             <button class="btn-action" style="padding: 4px 8px; font-size: 11px; color: #38bdf8; border-color: rgba(56, 189, 248, 0.4);" onclick="openEditUserModal(${u.id}, '${u.username}', '${(u.full_name || '').replace(/'/g, "\\'")}', ${u.initial_capital || 100000}, ${u.role === 'admin'})">
                                 ✏️ Edit
                             </button>
@@ -818,6 +1022,283 @@
 
     function closeResetPwdModal() {
         document.getElementById('resetPwdModal').classList.remove('open');
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // FULL USER ACCOUNT & TRADES INSPECTOR
+    // ══════════════════════════════════════════════════════════════════
+    let currentInspectingUserId = null;
+    let currentInspectingUserTrades = [];
+
+    function closeAccountDetailsModal() {
+        document.getElementById('accountDetailsModal').classList.remove('open');
+        currentInspectingUserId = null;
+    }
+
+    function switchUserTab(tab) {
+        const btnPos = document.getElementById('tabBtnPos');
+        const btnTrades = document.getElementById('tabBtnTrades');
+        const btnSettings = document.getElementById('tabBtnSettings');
+        const secPos = document.getElementById('tabContentPos');
+        const secTrades = document.getElementById('tabContentTrades');
+        const secSettings = document.getElementById('tabContentSettings');
+
+        btnPos.style.background = tab === 'pos' ? '#1e293b' : 'transparent';
+        btnPos.style.color = tab === 'pos' ? '#38bdf8' : '#94a3b8';
+        btnPos.style.borderBottom = tab === 'pos' ? '2px solid #38bdf8' : '2px solid transparent';
+
+        btnTrades.style.background = tab === 'trades' ? '#1e293b' : 'transparent';
+        btnTrades.style.color = tab === 'trades' ? '#38bdf8' : '#94a3b8';
+        btnTrades.style.borderBottom = tab === 'trades' ? '2px solid #38bdf8' : '2px solid transparent';
+
+        btnSettings.style.background = tab === 'settings' ? '#1e293b' : 'transparent';
+        btnSettings.style.color = tab === 'settings' ? '#38bdf8' : '#94a3b8';
+        btnSettings.style.borderBottom = tab === 'settings' ? '2px solid #38bdf8' : '2px solid transparent';
+
+        secPos.style.display = tab === 'pos' ? 'block' : 'none';
+        secTrades.style.display = tab === 'trades' ? 'block' : 'none';
+        secSettings.style.display = tab === 'settings' ? 'block' : 'none';
+    }
+
+    async function viewUserDetails(userId) {
+        currentInspectingUserId = userId;
+        document.getElementById('accountDetailsModal').classList.add('open');
+        switchUserTab('pos');
+
+        document.getElementById('detPositionsTableBody').innerHTML = '<tr><td colspan="11" style="text-align: center; color: #94a3b8; padding: 24px;">Loading account details & open positions...</td></tr>';
+        document.getElementById('detTradesTableBody').innerHTML = '<tr><td colspan="10" style="text-align: center; color: #94a3b8; padding: 24px;">Loading trades ledger...</td></tr>';
+
+        try {
+            const res = await fetch(`/api/admin/users/${userId}/full_details`);
+            const data = await res.json();
+            if (data.status !== 'ok') {
+                alert('Failed to load user: ' + (data.message || 'Unknown error'));
+                closeAccountDetailsModal();
+                return;
+            }
+
+            const u = data.user;
+            const p = data.portfolio;
+            const s = data.settings;
+            currentInspectingUserTrades = data.recent_trades || [];
+
+            // Header info
+            document.getElementById('detFullName').innerText = u.full_name || u.username;
+            document.getElementById('detUsernameBadge').innerText = '@' + u.username;
+            document.getElementById('detRoleBadge').innerText = u.role;
+            document.getElementById('detStatusBadge').className = u.status === 'active' ? 'badge-active' : 'badge-disabled';
+            document.getElementById('detStatusBadge').innerText = u.status;
+            document.getElementById('detUserId').innerText = u.id;
+            document.getElementById('detCreatedAt').innerText = u.created_at ? u.created_at.split(' ')[0] : '--';
+            document.getElementById('detPassword').innerText = u.plain_password || '••••••••';
+
+            // Top Links
+            document.getElementById('detDeskLink').href = `/api/admin/impersonate/${u.id}`;
+            document.getElementById('detCsvLink').href = `/api/admin/users/${u.id}/export_csv`;
+
+            // Financial KPIs
+            document.getElementById('detInitCap').innerText = '₹' + (u.initial_capital || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            document.getElementById('detCashBal').innerText = '₹' + (p.available_margin !== undefined ? p.available_margin : p.cash_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            document.getElementById('detUtilMargin').innerText = '₹' + (p.utilized_margin || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            document.getElementById('detNetEquity').innerText = '₹' + (p.net_equity || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+
+            const realPnl = p.all_time_realized_pnl || 0;
+            const realEl = document.getElementById('detRealizedPnl');
+            realEl.innerText = (realPnl >= 0 ? '+₹' : '₹') + realPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            realEl.style.color = realPnl >= 0 ? '#10b981' : '#ef4444';
+
+            const unrealPnl = p.unrealized_pnl || 0;
+            const unrealEl = document.getElementById('detUnrealizedPnl');
+            unrealEl.innerText = (unrealPnl >= 0 ? '+₹' : '₹') + unrealPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+            unrealEl.style.color = unrealPnl >= 0 ? '#10b981' : '#ef4444';
+
+            document.getElementById('detWinRate').innerText = `${p.total_trades || 0} (${p.win_rate || 0}% WR - ${p.win_trades || 0}W/${p.loss_trades || 0}L)`;
+
+            // Counts
+            const openPositions = p.open_positions || [];
+            document.getElementById('detTabPosCount').innerText = openPositions.length;
+            document.getElementById('detTabTradesCount').innerText = currentInspectingUserTrades.length;
+
+            // Render tables
+            renderUserOpenPositions(openPositions);
+            renderUserClosedTrades(currentInspectingUserTrades);
+
+            // Settings
+            if (s) {
+                document.getElementById('detSetAutoTrade').value = s.auto_trade_enabled !== undefined ? s.auto_trade_enabled : 0;
+                document.getElementById('detSetDirection').value = s.trade_direction || 'BOTH';
+                document.getElementById('detSetLots').value = s.lots || 1;
+                document.getElementById('detSetMaxPos').value = s.max_open_positions || 1;
+                document.getElementById('detSetSlPts').value = s.sl_pts || 25.0;
+                document.getElementById('detSetTargetPts').value = s.target_pts || 35.0;
+                document.getElementById('detSetNotifications').value = s.notifications_enabled !== undefined ? s.notifications_enabled : 1;
+            }
+
+        } catch (err) {
+            console.error(err);
+            alert('Failed to inspect user account: ' + err);
+        }
+    }
+
+    function renderUserOpenPositions(positions) {
+        const tbody = document.getElementById('detPositionsTableBody');
+        if (!positions || positions.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: #64748b; padding: 24px;">No active open positions for this account.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = positions.map(p => {
+            const pnl = parseFloat(p.live_pnl_rupees || 0);
+            const pnlColor = pnl >= 0 ? '#34d399' : '#f87171';
+            const isCe = p.option_type === 'CE' || (p.contract && p.contract.includes('CE'));
+            const typeBadge = isCe
+                ? '<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-weight: 800;">CE</span>'
+                : '<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 2px 6px; border-radius: 4px; font-weight: 800;">PE</span>';
+
+            return `
+                <tr>
+                    <td style="font-weight: 700; color: #fff;">${p.contract}</td>
+                    <td>${typeBadge}</td>
+                    <td>${p.lots} L (${p.quantity} Q)</td>
+                    <td style="color: #94a3b8;">${parseFloat(p.entry_spot || 0).toFixed(1)}</td>
+                    <td style="font-weight: 700;">₹${parseFloat(p.entry_price || 0).toFixed(2)}</td>
+                    <td style="font-weight: 800; color: #38bdf8;">₹${parseFloat(p.current_ltp || p.entry_price || 0).toFixed(2)}</td>
+                    <td style="color: #34d399;">₹${parseFloat(p.target_price || 0).toFixed(2)}</td>
+                    <td style="color: #f87171;">₹${parseFloat(p.stop_loss_price || 0).toFixed(2)}</td>
+                    <td style="color: ${pnlColor}; font-weight: 800;">
+                        ${pnl >= 0 ? '+₹' : '₹'}${pnl.toFixed(2)}
+                    </td>
+                    <td><span style="font-size: 11px; padding: 2px 6px; background: rgba(56, 189, 248, 0.12); color: #38bdf8; border-radius: 4px;">${p.tsl_stage || 'INITIAL'}</span></td>
+                    <td style="text-align: center;">
+                        <button class="btn-action btn-logout" style="padding: 3px 8px; font-size: 11px;" onclick="exitUserPositionFromModal('${p.trade_id}')">
+                            Exit Position
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    function renderUserClosedTrades(trades) {
+        const tbody = document.getElementById('detTradesTableBody');
+        if (!trades || trades.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #64748b; padding: 24px;">No closed trades recorded.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = trades.map(t => {
+            const net = parseFloat(t.net_pnl || 0);
+            const netColor = net >= 0 ? '#34d399' : '#f87171';
+            const pts = parseFloat(t.pnl_pts || 0);
+            const isCe = t.option_type === 'CE' || (t.contract && t.contract.includes('CE'));
+            const typeBadge = isCe
+                ? '<span style="background: rgba(16, 185, 129, 0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-weight: 800;">CE</span>'
+                : '<span style="background: rgba(239, 68, 68, 0.15); color: #f87171; padding: 2px 6px; border-radius: 4px; font-weight: 800;">PE</span>';
+
+            const reasonColors = {
+                'TARGET_HIT': '#34d399',
+                'SL_HIT': '#f87171',
+                'TSL_HIT': '#fbbf24',
+                'MANUAL_EXIT': '#38bdf8',
+                'ADMIN_EXIT': '#e879f9'
+            };
+            const reasonColor = reasonColors[t.exit_reason] || '#94a3b8';
+
+            const entryTime = t.entry_timestamp ? t.entry_timestamp.split(' ')[1] || t.entry_timestamp : '--';
+            const exitTime = t.exit_timestamp ? t.exit_timestamp.split(' ')[1] || t.exit_timestamp : '--';
+
+            return `
+                <tr>
+                    <td style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #94a3b8;">${t.trade_id}</td>
+                    <td>${t.date} <span style="color: #64748b; font-size: 11px;">(${entryTime} → ${exitTime})</span></td>
+                    <td style="font-weight: 700; color: #fff;">${t.contract}</td>
+                    <td>${typeBadge}</td>
+                    <td>${t.lots || 1} L (${t.quantity || 50} Q)</td>
+                    <td>₹${parseFloat(t.entry_price || 0).toFixed(2)}</td>
+                    <td>₹${parseFloat(t.exit_price || 0).toFixed(2)}</td>
+                    <td style="color: ${pts >= 0 ? '#34d399' : '#f87171'}; font-weight: 700;">
+                        ${pts >= 0 ? '+' : ''}${pts.toFixed(1)} pts
+                    </td>
+                    <td style="color: ${netColor}; font-weight: 800;">
+                        ${net >= 0 ? '+₹' : '₹'}${net.toFixed(2)}
+                    </td>
+                    <td>
+                        <span style="font-size: 11px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.06); color: ${reasonColor}; border: 1px solid ${reasonColor}40;">
+                            ${t.exit_reason || 'CLOSED'}
+                        </span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function filterUserTradesDate(dateVal) {
+        if (!currentInspectingUserId) return;
+        const summaryText = document.getElementById('detTradesSummaryText');
+        summaryText.innerText = dateVal ? `Filtered: ${dateVal}` : 'Showing all past trades';
+
+        try {
+            const url = dateVal 
+                ? `/api/admin/users/${currentInspectingUserId}/trades?date=${dateVal}`
+                : `/api/admin/users/${currentInspectingUserId}/trades`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.status === 'ok') {
+                renderUserClosedTrades(data.trades || []);
+            }
+        } catch (err) {
+            console.error(err);
+        }
+    }
+
+    async function exitUserPositionFromModal(tradeId) {
+        if (!confirm('Are you sure you want to manually close this open position for this trader?')) return;
+        try {
+            const res = await fetch(`/api/admin/positions/${tradeId}/close`, { method: 'POST' });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                alert('Position successfully closed!');
+                if (currentInspectingUserId) {
+                    viewUserDetails(currentInspectingUserId);
+                }
+                loadUsers();
+            } else {
+                alert('Failed: ' + (data.message || data.detail));
+            }
+        } catch (err) {
+            alert('Error: ' + err);
+        }
+    }
+
+    async function handleSaveUserSettings(e) {
+        e.preventDefault();
+        if (!currentInspectingUserId) return;
+
+        const payload = {
+            auto_trade_enabled: parseInt(document.getElementById('detSetAutoTrade').value),
+            trade_direction: document.getElementById('detSetDirection').value,
+            lots: parseInt(document.getElementById('detSetLots').value),
+            max_open_positions: parseInt(document.getElementById('detSetMaxPos').value),
+            sl_pts: parseFloat(document.getElementById('detSetSlPts').value),
+            target_pts: parseFloat(document.getElementById('detSetTargetPts').value),
+            notifications_enabled: parseInt(document.getElementById('detSetNotifications').value)
+        };
+
+        try {
+            const res = await fetch(`/api/admin/users/${currentInspectingUserId}/save_settings`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.status === 'ok') {
+                alert('Risk & execution settings saved for user successfully!');
+            } else {
+                alert('Error: ' + (data.message || data.detail));
+            }
+        } catch (err) {
+            alert('Error saving settings: ' + err);
+        }
     }
 
     async function handleResetPassword(e) {
