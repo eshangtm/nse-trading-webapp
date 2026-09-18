@@ -1037,47 +1037,57 @@ class LiveSignalEngine:
                 if "peak_pts" not in p or pts_gain > p["peak_pts"]:
                     p["peak_pts"] = pts_gain
 
-                # Dynamic Trailing Stop Loss & User's +₹200 Pullback Shield:
-                # Rule: Agar brokerage katne ke baad >= 3 net pts profit mila,
-                # toh pullback aane par kam se kam +₹200 NET profit me hi trade exit ho!
+                # ══════════════════════════════════════════════════════════════
+                # DYNAMIC TRAILING RATIO & MEGA RUNNER RATCHET (-2.0 PTS)
+                # ══════════════════════════════════════════════════════════════
                 brok_pts = round(140.0 / max(1, qty), 2)  # ~1.08 pts for 130 qty
-                net_peak = p["peak_pts"] - brok_pts
+                slip_pts = 0.60
+                net_min_pts = round(150.0 / max(1, qty), 2) # ~1.15 pts for +₹150 Net
+                early_safe_lock_pts = round(brok_pts + slip_pts + net_min_pts, 2)
 
-                if net_peak >= 3.0:
-                    lock_pts = round((200.0 + 140.0) / max(1, qty), 2)  # ~2.62 pts = +₹200 Net
-                    cand_sl = round(entry_p + lock_pts, 2)
-                    if cand_sl > p.get("sl_price", entry_p):
-                        p["sl_price"] = cand_sl
-                        p["tsl_stage"] = f"GUARANTEED +₹200 PROFIT LOCKED (₹{cand_sl:.1f})"
+                cand_sl = p.get("sl_price", entry_p - self.state.get("stop_loss_pts", 15.0))
 
-                # Tier 1: Cost lock at +3.0 gross pts
-                elif p["peak_pts"] >= self.state.get("breakeven_trigger_pts", 3.0) and not p.get("trailed_to_cost"):
-                    p["sl_price"] = round(entry_p + brok_pts, 2)
-                    p["trailed_to_cost"] = True
-                    p["tsl_stage"] = f"COST+BROKERAGE LOCKED (₹{entry_p + brok_pts:.1f})"
+                # STAGE 3: MEGA RUNNER -2.0 PT EXACT RATCHET (Peak >= 12.0 pts):
+                # Sl shifts exactly to (Peak - 2.0 pts)!
+                # Examples: Peak 30 -> SL 28, Peak 34 -> SL 32, Peak 36 -> SL 34, Peak 71 -> SL 69!
+                if p["peak_pts"] >= 12.0:
+                    cand = round(entry_p + p["peak_pts"] - 2.0, 2)
+                    if cand > cand_sl:
+                        cand_sl = cand
+                        p["trailed_to_cost"] = True
+                        p["tsl_stage"] = f"🚀 MEGA RIDE -2pt (Peak +{p['peak_pts']:.1f} ➔ SL +{round(cand - entry_p, 1)})"
 
-                # Tier 2: Higher profit trailing (Lock 50% for >= +6 pts, 65% for >= +12 pts)
-                if p["peak_pts"] >= self.state.get("target_p12_lock", 12.0):
-                    locked = round(p["peak_pts"] * 0.65, 1)
-                    cand_sl = round(entry_p + locked, 1)
-                    if cand_sl > p.get("sl_price", entry_p):
-                        p["sl_price"] = cand_sl
-                        p["tsl_stage"] = f"RUNNER LOCKED (+{locked} pts | ₹{cand_sl:.1f})"
-                elif p["peak_pts"] >= self.state.get("target_p6_lock", 6.0):
-                    locked = round(p["peak_pts"] * 0.50, 1)
-                    cand_sl = round(entry_p + locked, 1)
-                    if cand_sl > p.get("sl_price", entry_p):
-                        p["sl_price"] = cand_sl
-                        p["tsl_stage"] = f"PROFIT LOCKED (+{locked} pts | ₹{cand_sl:.1f})"
+                # STAGE 2: ACCELERATING RUNNER (Peak >= 8.0 to 11.9 pts):
+                elif p["peak_pts"] >= 8.0:
+                    cand = round(entry_p + p["peak_pts"] - 2.5, 2)
+                    if cand > cand_sl:
+                        cand_sl = cand
+                        p["trailed_to_cost"] = True
+                        p["tsl_stage"] = f"🎯 MID RUNNER (Peak +{p['peak_pts']:.1f} ➔ SL +{round(cand - entry_p, 1)})"
 
-                tgt_p = float(p.get("target_price", entry_p + 15.0))
-                sl_p = float(p.get("sl_price", entry_p - self.state.get("stop_loss_pts", 7.5)))
+                # STAGE 1: EARLY PULLBACK SHIELD (Peak >= 5.5 to 7.9 pts):
+                # Covers brokerage + slippage + locks guaranteed net profit
+                elif p["peak_pts"] >= 5.5:
+                    cand = round(entry_p + early_safe_lock_pts, 2)
+                    if cand > cand_sl:
+                        cand_sl = cand
+                        p["trailed_to_cost"] = True
+                        net_rs = round((cand - entry_p - brok_pts - slip_pts) * qty, 0)
+                        p["tsl_stage"] = f"🛡️ NET SHIELD (+{round(cand - entry_p, 1)} pts | +₹{int(net_rs)} Net)"
 
-                if cur_ltp >= tgt_p:
-                    to_close.append((p.get("trade_id"), "TARGET_HIT", cur_ltp))
-                elif cur_ltp <= sl_p:
-                    outcome = "BREAKEVEN" if p.get("trailed_to_cost") and cur_ltp >= entry_p - 0.5 else "SL_HIT"
+                p["sl_price"] = cand_sl
+
+                tgt_p = float(p.get("target_price", entry_p + 35.0))
+                sl_p = float(p.get("sl_price", entry_p - self.state.get("stop_loss_pts", 15.0)))
+
+                if cur_ltp <= sl_p:
+                    outcome = "BREAKEVEN" if p.get("trailed_to_cost") and cur_ltp >= entry_p else "SL_HIT"
                     to_close.append((p.get("trade_id"), outcome, cur_ltp))
+                elif cur_ltp >= tgt_p:
+                    if p["peak_pts"] >= 12.0:
+                        pass # Let the -2.0 pt trailing runner ride!
+                    else:
+                        to_close.append((p.get("trade_id"), "TARGET_HIT", cur_ltp))
 
             self.save_wallet()
 

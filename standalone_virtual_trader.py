@@ -171,43 +171,57 @@ class StandaloneVirtualTrader:
                         p["peak_pts"] = round(peak_pts, 2)
                         p["peak_ltp"] = round(entry_price + peak_pts, 2)
 
+                        # Cost & Friction Math
+                        lots = max(1, qty // 50)
+                        brok_pts = round((70.0 * lots) / max(1, qty), 2)  # ~1.40 pts for 50 qty
+                        slip_pts = 0.60  # Buffer for execution slippage
+                        net_min_pts = round(120.0 / max(1, qty), 2)  # ~2.40 pts guaranteed net profit
+                        early_safe_lock_pts = round(brok_pts + slip_pts + net_min_pts, 2)  # ~4.40 pts
+
                         # ══════════════════════════════════════════════════════════
-                        # 4-TIER ASYMMETRIC TRAILING RUNNER SYSTEM
+                        # DYNAMIC TRAILING RATIO & MEGA RUNNER RATCHET (-2.0 PTS)
                         # ══════════════════════════════════════════════════════════
-                        # Tier 3: +12.0+ pts Mega Runner -> Lock 80% of peak gain (Captures 20-40+ pt swings!)
+                        # STAGE 3: MEGA RUNNER -2.0 PT EXACT RATCHET (Peak >= 12.0 pts):
+                        # When trade is flying, trail strictly 2 points behind the highest peak!
+                        # Examples: Peak 30 -> SL 28, Peak 34 -> SL 32, Peak 36 -> SL 34, Peak 71 -> SL 69!
                         if peak_pts >= 12.0:
-                            locked_sl = round(entry_price + (peak_pts * 0.80), 2)
+                            locked_sl = round(entry_price + peak_pts - 2.0, 2)
                             if locked_sl > p.get("stop_loss_price", 0.0):
                                 p["stop_loss_price"] = locked_sl
-                                p["tsl_stage"] = f"🚀 MEGA RUNNER 80% (Locked: +{round(peak_pts * 0.80, 1)} pts)"
-                        # Tier 2: +6.0 to +11.9 pts Mid Runner -> Lock 65% of peak gain
-                        elif peak_pts >= 6.0:
-                            locked_sl = round(entry_price + (peak_pts * 0.65), 2)
+                                p["tsl_stage"] = f"🚀 MEGA RIDE -2pt (Peak +{peak_pts:.1f} ➔ SL +{round(locked_sl - entry_price, 1)})"
+                        # STAGE 2: ACCELERATING RUNNER (Peak >= 8.0 to 11.9 pts):
+                        # Trail at Peak - 2.5 pts to lock in solid gain
+                        elif peak_pts >= 8.0:
+                            locked_sl = round(entry_price + peak_pts - 2.5, 2)
                             if locked_sl > p.get("stop_loss_price", 0.0):
                                 p["stop_loss_price"] = locked_sl
-                                p["tsl_stage"] = f"🎯 MID RUNNER 65% (Locked: +{round(peak_pts * 0.65, 1)} pts)"
-                        # Tier 1: +3.0 to +5.9 pts Early Risk-Free -> Move SL to Cost (+0.50 pts)
-                        elif peak_pts >= 3.0:
-                            locked_sl = round(entry_price + 0.50, 2)
+                                p["tsl_stage"] = f"🎯 MID RUNNER (Peak +{peak_pts:.1f} ➔ SL +{round(locked_sl - entry_price, 1)})"
+                        # STAGE 1: EARLY PULLBACK SHIELD (Peak >= 5.5 to 7.9 pts):
+                        # Covers ₹70 brokerage + slippage + locks ₹100-₹150 guaranteed net profit
+                        elif peak_pts >= 5.5:
+                            locked_sl = round(entry_price + early_safe_lock_pts, 2)
                             if locked_sl > p.get("stop_loss_price", 0.0):
                                 p["stop_loss_price"] = locked_sl
                                 p["trailed_to_cost"] = True
-                                p["tsl_stage"] = "🛡️ ZERO RISK (Cost Locked +0.5 pts)"
+                                p["tsl_stage"] = f"🛡️ NET SHIELD (+{round(locked_sl - entry_price, 1)} pts | +₹{int(net_min_pts * qty)} Net)"
 
                         # Auto Exit Evaluation
                         # 1. Trailing SL Hit
                         if live_ltp <= p["stop_loss_price"]:
-                            if p.get("trailed_to_cost") or peak_pts >= 3.0:
+                            if p["stop_loss_price"] > entry_price:
                                 lock_pts = round(p['stop_loss_price'] - entry_price, 1)
-                                reason = f"⚡ Auto TSL Lock (+{lock_pts} pts)"
+                                reason = f"🛡️ Trailing SL Hit (+{lock_pts} pts)"
                             else:
                                 sl_pts_val = round(entry_price - p['stop_loss_price'], 1)
-                                reason = f"🛑 Auto Stop Loss Hit (-{sl_pts_val} pts)"
+                                reason = f"🛑 Stop Loss Hit (-{sl_pts_val} pts)"
                             to_close.append((p["trade_id"], p["stop_loss_price"], reason, spot_price))
-                        # 2. Predicted Terminal Target Hit
+                        # 2. Predicted Terminal Target Hit (Let Mega Runners ride without capping!)
                         elif live_ltp >= target_p:
-                            tgt_pts_val = round(target_p - entry_price, 1)
-                            to_close.append((p["trade_id"], target_p, f"🎯 Auto Target Hit (+{tgt_pts_val} pts)", spot_price))
+                            if peak_pts >= 12.0:
+                                pass # Let the -2.0 pt mega runner ride all the way!
+                            else:
+                                tgt_pts_val = round(target_p - entry_price, 1)
+                                to_close.append((p["trade_id"], target_p, f"🎯 Auto Target Hit (+{tgt_pts_val} pts)", spot_price))
 
             for tid, exit_p, outcome, s_price in to_close:
                 self.close_position(tid, exit_price=exit_p, outcome=outcome, exit_spot=s_price)

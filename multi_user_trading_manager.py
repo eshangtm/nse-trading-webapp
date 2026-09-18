@@ -300,41 +300,69 @@ class MultiUserTradingManager:
                 cur_gain = round(live_ltp - entry_p, 2)
                 peak_pts = max(float(p.get("peak_pts", 0.0) or 0.0), cur_gain)
 
-                # 4-Tier Asymmetric Trailing SL
+                # Cost & Friction Math
+                lots = max(1, qty // 50)
+                brok_pts = round((70.0 * lots) / max(1, qty), 2)  # ~1.40 pts for 50 qty
+                slip_pts = 0.60  # Buffer for execution slippage
+                net_min_pts = round(120.0 / max(1, qty), 2) # ~2.40 pts guaranteed net profit
+                early_safe_lock_pts = round(brok_pts + slip_pts + net_min_pts, 2) # ~4.40 pts
+
                 tsl_stage = p.get("tsl_stage", "INITIAL")
                 trailed = p.get("trailed_to_cost", 0)
                 new_sl = sl_p
 
-                # Tier 3: +12.0+ pts -> Lock 80%
+                # ══════════════════════════════════════════════════════════════
+                # DYNAMIC TRAILING RATIO & MEGA RUNNER RATCHET (-2.0 PTS)
+                # ══════════════════════════════════════════════════════════════
+                # STAGE 3: MEGA RUNNER -2.0 PT EXACT RATCHET (Peak >= 12.0 pts):
+                # When trade is flying, trail strictly 2 points behind the highest peak!
+                # Examples: Peak 30 -> SL 28, Peak 34 -> SL 32, Peak 36 -> SL 34, Peak 71 -> SL 69!
                 if peak_pts >= 12.0:
-                    cand = round(entry_p + (peak_pts * 0.80), 2)
-                    if cand > new_sl:
-                        new_sl = cand
-                        tsl_stage = f"MEGA 80% (+{round(peak_pts*0.80, 1)})"
-                # Tier 2: +6.0 to 11.9 pts -> Lock 65%
-                elif peak_pts >= 6.0:
-                    cand = round(entry_p + (peak_pts * 0.65), 2)
-                    if cand > new_sl:
-                        new_sl = cand
-                        tsl_stage = f"MID 65% (+{round(peak_pts*0.65, 1)})"
-                # Tier 1: +3.0 to 5.9 pts -> Cost + 0.50
-                elif peak_pts >= 3.0:
-                    cand = round(entry_p + 0.50, 2)
+                    cand = round(entry_p + peak_pts - 2.0, 2)
                     if cand > new_sl:
                         new_sl = cand
                         trailed = 1
-                        tsl_stage = "COST +0.5"
+                        tsl_stage = f"🚀 MEGA RIDE -2pt (Peak +{peak_pts:.1f} ➔ SL +{round(cand - entry_p, 1)})"
+
+                # STAGE 2: ACCELERATING RUNNER (Peak >= 8.0 to 11.9 pts):
+                # Trail at Peak - 2.5 pts to lock in solid gain
+                elif peak_pts >= 8.0:
+                    cand = round(entry_p + peak_pts - 2.5, 2)
+                    if cand > new_sl:
+                        new_sl = cand
+                        trailed = 1
+                        tsl_stage = f"🎯 MID RUNNER (Peak +{peak_pts:.1f} ➔ SL +{round(cand - entry_p, 1)})"
+
+                # STAGE 1: EARLY PULLBACK SHIELD (Peak >= 5.5 to 7.9 pts):
+                # Covers ₹70 brokerage + slippage + locks ₹100-₹150 guaranteed net profit
+                elif peak_pts >= 5.5:
+                    cand = round(entry_p + early_safe_lock_pts, 2)
+                    if cand > new_sl:
+                        new_sl = cand
+                        trailed = 1
+                        net_rs = round((cand - entry_p - brok_pts - slip_pts) * qty, 0)
+                        tsl_stage = f"🛡️ NET SHIELD (+{round(cand - entry_p, 1)} pts | +₹{int(net_rs)} Net)"
 
                 # Check Exits:
                 if live_ltp <= new_sl:
-                    reason = f"🛡️ Trailing SL Hit (+{round(new_sl - entry_p, 2)} pts)" if new_sl > entry_p else f"🛑 Stop Loss Hit (-{round(entry_p - new_sl, 2)} pts)"
+                    pts_captured = round(new_sl - entry_p, 2)
+                    if new_sl > entry_p:
+                        reason = f"🛡️ Trailing SL Hit (+{pts_captured} pts)"
+                    else:
+                        reason = f"🛑 Stop Loss Hit (-{round(entry_p - new_sl, 2)} pts)"
                     to_close.append((p["user_id"], p["trade_id"], new_sl, reason, spot_price))
                     continue
 
+                # Target Handling:
+                # If peak_pts >= 12.0, trade is in MEGA RUNNER mode (-2.0 pt ratchet).
+                # Do NOT cut off a mega runner at target! Let it ride all the way to 30, 36, 71+ pts!
                 if live_ltp >= target_p:
-                    reason = f"🎯 Target Hit (+{round(target_p - entry_p, 2)} pts)"
-                    to_close.append((p["user_id"], p["trade_id"], target_p, reason, spot_price))
-                    continue
+                    if peak_pts >= 12.0:
+                        pass # Let the -2.0 pt trailing runner ride!
+                    else:
+                        reason = f"🎯 Target Hit (+{round(target_p - entry_p, 2)} pts)"
+                        to_close.append((p["user_id"], p["trade_id"], target_p, reason, spot_price))
+                        continue
 
                 # Live MTM Updates
                 live_pnl_rupees = round(cur_gain * qty, 2)
@@ -363,6 +391,18 @@ class MultiUserTradingManager:
         - If master_auto is True or user has auto_trade_enabled=1 and direction matches -> Auto-executes order.
         - If user has auto_trade_enabled=0 -> Creates interactive notification alert (Execute/Cancel).
         """
+        # ══════════════════════════════════════════════════════════════
+        # TIME-OF-DAY QUALITY FILTER:
+        # Trading Window: 09:20 to 14:45 IST (Avoid 3 PM closing wild chop and 12:00-12:45 lunch chop)
+        # ══════════════════════════════════════════════════════════════
+        from datetime import datetime, timezone, timedelta
+        ist_now = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=5, minutes=30)
+        time_str = ist_now.strftime("%H:%M")
+        if time_str < "09:20" or time_str > "14:45":
+            return {"status": "skipped", "message": f"Outside allowed trading window (09:20 - 14:45 IST). Current time: {time_str}"}
+        if "12:00" <= time_str <= "12:45":
+            return {"status": "skipped", "message": f"Midday chop avoidance window (12:00 - 12:45 IST). Current time: {time_str}"}
+
         signal_dir = signal_data.get("direction", "CALL").upper()
         strike = float(signal_data.get("strike", 0.0) or signal_data.get("strike_price", 0.0))
         contract = signal_data.get("contract", f"NIFTY {int(strike)} {'CE' if signal_dir == 'CALL' else 'PE'}")
