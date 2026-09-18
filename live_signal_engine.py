@@ -119,6 +119,8 @@ class LiveSignalEngine:
                     saved = json.load(f)
                     if "initial_capital" in saved:
                         default_wallet["initial_capital"] = float(saved["initial_capital"])
+                    if "active_positions" in saved and isinstance(saved["active_positions"], list):
+                        default_wallet["active_positions"] = saved["active_positions"]
             except Exception:
                 pass
         self.wallet = default_wallet
@@ -137,7 +139,12 @@ class LiveSignalEngine:
 
     def is_market_open(self, dt=None):
         """Check if market is currently open (Monday-Friday 09:15 to 15:30 IST)."""
-        check_dt = dt or datetime.now()
+        if dt is None:
+            from datetime import timezone, timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))
+            check_dt = datetime.now(ist).replace(tzinfo=None)
+        else:
+            check_dt = dt
         if check_dt.weekday() >= 5: # 5=Saturday, 6=Sunday
             return False, f"Market Closed (Weekend: {check_dt.strftime('%A')})"
         m_open = check_dt.replace(hour=9, minute=15, second=0, microsecond=0)
@@ -544,6 +551,25 @@ class LiveSignalEngine:
         self.state["active_signal"] = sig
         self.save_state()
 
+        # Send Real-Time Telegram Alert
+        try:
+            from telegram_notifier import send_telegram_message
+            t_msg = (
+                f"⚡ *NEW LIVE TRADE EXECUTED*\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 *Contract*: `{sig['contract']}`\n"
+                f"📈 *Direction*: `{sig['action']}`\n"
+                f"💵 *Entry LTP*: `₹{entry_ltp:.2f}`\n"
+                f"🛑 *Stop Loss*: `₹{sig['stop_loss_price']:.2f}` (-7.5 pts)\n"
+                f"🎯 *Target*: `₹{sig['target_plan']['target_2_runner']:.2f}` (+12 pts)\n"
+                f"📦 *Quantity*: `{qty}` ({sig.get('lots', 2)} Lots)\n"
+                f"🛡️ *Setup*: {sig.get('weapon_reason', 'Selective Master')}\n"
+                f"⏰ *Time*: `{exec_time}`"
+            )
+            send_telegram_message(t_msg)
+        except Exception as e:
+            print("[TELEGRAM] Entry dispatch error:", e)
+
         return {
             "status": "ok",
             "execution_type": exec_type,
@@ -634,12 +660,27 @@ class LiveSignalEngine:
             is_breakeven = True
             matched["status"] = "BREAKEVEN"
 
-        # ── Realistic Execution Math: 1.0% Entry & 1.0% Exit Slippage + Flat Rs. 70/lot Brokerage ──
+        # ── Realistic Execution Math: Real DuckDB Tick Slippage (~0.10-0.20 pts) + Flat Rs. 70/lot Brokerage ──
         BROKERAGE_PER_LOT = 70.0
-        SLIPPAGE_PCT = 1.0
+        try:
+            from duckdb_engine import duckdb_engine
+            con = duckdb_engine.get_connection(read_only=True)
+            ticks = con.execute("""
+                SELECT ltp FROM nifty_ticks 
+                WHERE strike = ? AND type = ? 
+                ORDER BY timestamp DESC LIMIT 5
+            """, (float(matched.get("strike_price", 0)), str(matched.get("option_type", "CE")))).fetchall()
+            if ticks and len(ticks) >= 2:
+                p_list = [r[0] for r in ticks if r[0] is not None]
+                gaps = [abs(p_list[i] - p_list[i+1]) for i in range(len(p_list)-1)]
+                slip_leg = max(0.05, min(0.35, round(sum(gaps)/len(gaps), 2)))
+            else:
+                slip_leg = 0.15
+        except Exception:
+            slip_leg = 0.15
 
-        slip_entry_pts = max(0.05, round(round(entry_ltp * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
-        slip_exit_pts = max(0.05, round(round(exit_price * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
+        slip_entry_pts = slip_leg
+        slip_exit_pts = slip_leg
         slippage_pts = round(slip_entry_pts + slip_exit_pts, 2)
         slippage_rupees = round(slippage_pts * qty, 2)
         brokerage_rupees = round(lots * BROKERAGE_PER_LOT, 2)
@@ -698,9 +739,28 @@ class LiveSignalEngine:
         self.wallet["active_positions"] = []
         self.save_wallet()
 
-        # Clear active signal from state (Ready for next trade once a new setup confirms)
+        # Clear active signal from state and record trade close timestamp
+        now_close_dt = datetime.now()
+        self.state["last_trade_closed_at"] = now_close_dt.strftime("%Y-%m-%d %H:%M:%S")
+        self.wallet["last_closed_trade_time"] = now_close_dt.timestamp()
         self.state["active_signal"] = None
         self.save_state()
+
+        # Send Real-Time Telegram Exit Alert
+        try:
+            from telegram_notifier import send_telegram_message
+            pnl_emoji = "🟢" if net_pnl_rupees > 0 else "🔴"
+            t_msg = (
+                f"🏁 *TRADE CLOSED ({outcome})*\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🎯 *Contract*: `{matched.get('contract', 'NIFTY')}`\n"
+                f"💵 *Exit LTP*: `₹{exit_price:.2f}` (Entry: `₹{entry_ltp:.2f}`)\n"
+                f"{pnl_emoji} *Net P&L*: `₹{net_pnl_rupees:,.2f}` (`{net_pnl_pts:+.2f} pts`)\n"
+                f"⏰ *Exit Time*: `{matched.get('exit_time')}`"
+            )
+            send_telegram_message(t_msg)
+        except Exception as e:
+            print("[TELEGRAM] Exit dispatch error:", e)
 
         return {
             "status": "ok",
@@ -1189,6 +1249,9 @@ class LiveSignalEngine:
         # ══════════════════════════════════════════════════════════════════
         # STRICT TRIGGER LOGIC (CONFLUENCE REQUIRED: NO NAKED BREAKOUTS):
         # ══════════════════════════════════════════════════════════════════
+        now_ts_sec = datetime.now().timestamp()
+        if hasattr(self, "last_signal_time") and (now_ts_sec - self.last_signal_time < 45.0):
+            return {"status": "monitoring", "spot": spot_price, "message": "Signal engine in debounce cooldown"}
 
         # 1. BULLISH BREAKOUT SETUP: Fresh crossing of R1 with EMA trend & Put writers support
         breakout_zone = (r1 <= spot_price <= r1 + 20.0)
@@ -1368,6 +1431,7 @@ class LiveSignalEngine:
             }
 
         if signal:
+            self.last_signal_time = now_ts_sec
             self.state["active_signal"] = signal
             self.state["last_processed_time"] = ts_str
             self.save_state()

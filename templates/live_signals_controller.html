@@ -679,7 +679,9 @@
                     </div>
                     <span style="font-size: 11.5px; color: #94a3b8;">
                         <span style="color: #38bdf8; font-weight: 700;">― 9EMA</span> &nbsp;
-                        <span style="color: #f59e0b; font-weight: 700;">― 21EMA</span>
+                        <span style="color: #f59e0b; font-weight: 700;">― 21EMA</span> &nbsp;
+                        <span style="color: #10b981; font-weight: 700;">― ST Bull (10,2)</span> &nbsp;
+                        <span style="color: #ef4444; font-weight: 700;">― ST Bear (10,2)</span>
                     </span>
                     <a href="/" target="_blank" class="nav-link-btn" style="padding: 4px 10px; font-size: 11.5px;">Fullscreen Terminal ↗</a>
                 </div>
@@ -851,6 +853,8 @@
         let volumeSeries = null;
         let ema9Series = null;
         let ema21Series = null;
+        let supertrendUpSeries = null;
+        let supertrendDownSeries = null;
         let currentChartInterval = 60;
 
         function initLiveChart() {
@@ -898,6 +902,8 @@
                 });
                 ema9Series = chartInstance.addLineSeries({ color: '#38bdf8', lineWidth: 1.5, title: '9EMA' });
                 ema21Series = chartInstance.addLineSeries({ color: '#f59e0b', lineWidth: 1.5, title: '21EMA' });
+                supertrendUpSeries = chartInstance.addLineSeries({ color: '#10b981', lineWidth: 2, title: 'ST Bull' });
+                supertrendDownSeries = chartInstance.addLineSeries({ color: '#ef4444', lineWidth: 2, title: 'ST Bear' });
             } else if (typeof chartInstance.addSeries === 'function') {
                 candleSeries = chartInstance.addSeries(LightweightCharts.CandlestickSeries, {
                     upColor: '#10b981', downColor: '#ef4444',
@@ -912,6 +918,8 @@
                 });
                 ema9Series = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#38bdf8', lineWidth: 1.5, title: '9EMA' });
                 ema21Series = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#f59e0b', lineWidth: 1.5, title: '21EMA' });
+                supertrendUpSeries = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#10b981', lineWidth: 2, title: 'ST Bull' });
+                supertrendDownSeries = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#ef4444', lineWidth: 2, title: 'ST Bear' });
             }
 
             window.addEventListener('resize', () => {
@@ -936,6 +944,136 @@
                 res.push({ time: data[i].time, value: parseFloat(ema.toFixed(2)) });
             }
             return res;
+        }
+
+        function calculateSuperTrend(candles, period = 10, multiplier = 2.0) {
+            if (!candles || candles.length === 0) {
+                return { upSeries: [], downSeries: [], markers: [], latest: null };
+            }
+
+            const n = candles.length;
+            const tr = new Array(n);
+            for (let i = 0; i < n; i++) {
+                if (i === 0) {
+                    tr[i] = (candles[i].high || 0) - (candles[i].low || 0);
+                } else {
+                    const h = candles[i].high !== undefined ? candles[i].high : candles[i].close;
+                    const l = candles[i].low !== undefined ? candles[i].low : candles[i].close;
+                    const prevC = candles[i - 1].close || 0;
+                    tr[i] = Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
+                }
+            }
+
+            const atr = new Array(n);
+            let sumTR = 0;
+            for (let i = 0; i < n; i++) {
+                if (i < period) {
+                    sumTR += tr[i];
+                    atr[i] = sumTR / (i + 1);
+                } else {
+                    atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
+                }
+            }
+
+            const upSeriesData = [];
+            const downSeriesData = [];
+            const markers = [];
+
+            let prevFinalUpper = 0;
+            let prevFinalLower = 0;
+            let prevTrend = 1;
+            let latestST = null;
+
+            for (let i = 0; i < n; i++) {
+                const c = candles[i];
+                const high = c.high !== undefined ? c.high : c.close;
+                const low = c.low !== undefined ? c.low : c.close;
+                const close = c.close;
+                const hl2 = (high + low) / 2;
+                const curAtr = atr[i] || 0;
+                const basicUpper = hl2 + (multiplier * curAtr);
+                const basicLower = hl2 - (multiplier * curAtr);
+
+                let finalUpper = basicUpper;
+                let finalLower = basicLower;
+
+                if (i > 0) {
+                    const prevClose = candles[i - 1].close;
+                    if (basicLower > prevFinalLower || prevClose < prevFinalLower) {
+                        finalLower = basicLower;
+                    } else {
+                        finalLower = prevFinalLower;
+                    }
+
+                    if (basicUpper < prevFinalUpper || prevClose > prevFinalUpper) {
+                        finalUpper = basicUpper;
+                    } else {
+                        finalUpper = prevFinalUpper;
+                    }
+                }
+
+                let trend = prevTrend;
+                if (i > 0) {
+                    if (prevTrend === -1 && close > prevFinalUpper) {
+                        trend = 1;
+                    } else if (prevTrend === 1 && close < prevFinalLower) {
+                        trend = -1;
+                    }
+                } else {
+                    trend = close >= hl2 ? 1 : -1;
+                }
+
+                if (i > 0 && trend !== prevTrend) {
+                    if (trend === 1) {
+                        markers.push({
+                            time: c.time,
+                            position: 'belowBar',
+                            color: '#10b981',
+                            shape: 'arrowUp',
+                            text: 'BUY'
+                        });
+                    } else {
+                        markers.push({
+                            time: c.time,
+                            position: 'aboveBar',
+                            color: '#ef4444',
+                            shape: 'arrowDown',
+                            text: 'SELL'
+                        });
+                    }
+                }
+
+                const stVal = trend === 1 ? finalLower : finalUpper;
+                const roundedVal = parseFloat(stVal.toFixed(2));
+
+                if (trend === 1) {
+                    upSeriesData.push({ time: c.time, value: roundedVal });
+                    downSeriesData.push({ time: c.time });
+                } else {
+                    downSeriesData.push({ time: c.time, value: roundedVal });
+                    upSeriesData.push({ time: c.time });
+                }
+
+                prevFinalUpper = finalUpper;
+                prevFinalLower = finalLower;
+                prevTrend = trend;
+
+                if (i === n - 1) {
+                    latestST = {
+                        value: roundedVal,
+                        trend: trend,
+                        color: trend === 1 ? '#10b981' : '#ef4444',
+                        label: trend === 1 ? 'BUY' : 'SELL'
+                    };
+                }
+            }
+
+            return {
+                upSeries: upSeriesData,
+                downSeries: downSeriesData,
+                markers: markers,
+                latest: latestST
+            };
         }
 
         async function fetchChartCandles() {
@@ -968,8 +1106,16 @@
                         ema21Series.setData(calculateEMA(cData, 21));
                     }
 
+                    const stRes = calculateSuperTrend(cData, 10, 2.0);
+                    if (supertrendUpSeries && supertrendDownSeries) {
+                        supertrendUpSeries.setData(stRes.upSeries);
+                        supertrendDownSeries.setData(stRes.downSeries);
+                        if (candleSeries) candleSeries.setMarkers(stRes.markers);
+                    }
+
                     const cntEl = document.getElementById('chart-candle-count');
-                    if (cntEl) cntEl.innerText = `${cData.length} Candles (Latest: ₹${cData[cData.length - 1].close.toFixed(2)})`;
+                    const stBadge = stRes.latest ? ` | ST(10,2): <span style="color:${stRes.latest.color}; font-weight:bold;">₹${stRes.latest.value} (${stRes.latest.label})</span>` : '';
+                    if (cntEl) cntEl.innerHTML = `${cData.length} Candles (Latest: ₹${cData[cData.length - 1].close.toFixed(2)})${stBadge}`;
                 }
             } catch (e) {
                 console.error("Candle fetch error:", e);
@@ -1852,7 +1998,7 @@
                                     <div style="grid-column: 1 / -1; background: rgba(15, 23, 42, 0.7); padding: 8px 12px; border-radius: 6px; border: 1px dashed rgba(56, 189, 248, 0.25); margin-top: 4px;">
                                         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
                                             <span style="color: #cbd5e1;"><b>Detailed P&L Audit:</b> Gross Points: <b style="color:#fff;">${grossPts.toFixed(1)} pts</b> (Gross PnL: ₹${grossPnl.toFixed(2)})</span>
-                                            <span style="color: #cbd5e1;">Brokerage: <b style="color:#ef4444;">-₹${brok.toFixed(2)}</b> | Slippage (1%): <b style="color:#ef4444;">-₹${slip.toFixed(2)}</b></span>
+                                            <span style="color: #cbd5e1;">Brokerage: <b style="color:#ef4444;">-₹${brok.toFixed(2)}</b> | Slippage (Real Ticks): <b style="color:#ef4444;">-₹${slip.toFixed(2)}</b></span>
                                             <span style="color: ${pnlColor}; font-weight: 800;">Net P&L: ${pnlText} ${isBe ? '<span style="color:#f59e0b; font-size:11px; font-weight:normal; margin-left:6px;">🛡️ (Breakeven - Excluded from 5/5 Daily Limit)</span>' : ''}</span>
                                         </div>
                                     </div>

@@ -25,7 +25,59 @@ class MultiUserTradingManager:
     def __init__(self, db=user_db):
         self.db = db
         self._last_signal_time: Dict[int, float] = {}
+        self._last_trade_closed_time: Dict[int, float] = {}
         self._last_notified_sl: Dict[str, float] = {}
+
+    def get_last_closed_trade_time(self, user_id: int) -> float:
+        """Returns unix epoch timestamp of user's most recently closed trade."""
+        if user_id in self._last_trade_closed_time:
+            return self._last_trade_closed_time[user_id]
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT exit_timestamp FROM user_trades 
+                WHERE user_id = ? 
+                ORDER BY id DESC LIMIT 1
+            """, (user_id,))
+            row = cursor.fetchone()
+            if row and row["exit_timestamp"]:
+                try:
+                    clean = str(row["exit_timestamp"]).replace('T', ' ').split('.')[0].strip()
+                    dt = datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
+                    val = dt.timestamp()
+                    self._last_trade_closed_time[user_id] = val
+                    return val
+                except Exception:
+                    pass
+        return 0.0
+
+    def _parse_signal_timestamp(self, signal_data: Dict[str, Any], fallback: float) -> float:
+        """Extracts and parses generation timestamp from incoming signal."""
+        for k in ["timestamp", "entry_time", "created_at", "signal_time"]:
+            val = signal_data.get(k)
+            if val:
+                if isinstance(val, (int, float)):
+                    return float(val)
+                if isinstance(val, str):
+                    try:
+                        clean = val.replace('T', ' ').split('.')[0].strip()
+                        dt = datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
+                        return dt.timestamp()
+                    except Exception:
+                        pass
+        sig_id = str(signal_data.get("signal_id", ""))
+        if sig_id.startswith("SIG_"):
+            parts = sig_id[4:].split('_')
+            if parts and parts[0].isdigit():
+                try:
+                    val = int(parts[0])
+                    if val > 1e11:  # milliseconds
+                        val /= 1000.0
+                    if val > 1e8:
+                        return float(val)
+                except Exception:
+                    pass
+        return fallback
 
     def get_user_portfolio(self, user_id: int) -> Dict[str, Any]:
         """Fetch complete isolated portfolio, margins, and active positions for a user."""
@@ -143,6 +195,17 @@ class MultiUserTradingManager:
         # Margin check: Verify user has sufficient cash
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
+
+            # Rule: Auto-trading allows strictly 1 open position at a time
+            if order_type == "ALGO_AUTO":
+                cursor.execute("SELECT COUNT(*) FROM user_positions WHERE user_id = ? AND status = 'OPEN'", (user_id,))
+                cur_open_pos = cursor.fetchone()[0]
+                if cur_open_pos >= 1:
+                    return {
+                        "status": "error",
+                        "message": "Auto-trading allows strictly 1 open position at a time. Previous trade must close first."
+                    }
+
             cursor.execute("SELECT cash_balance FROM users WHERE id = ?", (user_id,))
             current_cash = float(cursor.fetchone()["cash_balance"])
 
@@ -222,10 +285,27 @@ class MultiUserTradingManager:
             pnl_pts = round(actual_exit - entry_price, 2)
             gross_pnl = round(pnl_pts * qty, 2)
 
-            # Realistic Friction: Rs. 70/lot brokerage + 1.0% option execution slippage
-            SLIPPAGE_PCT = 1.0
-            slip_entry_pts = max(0.05, round(round(entry_price * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
-            slip_exit_pts = max(0.05, round(round(actual_exit * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
+            # Realistic Friction: Rs. 70/lot brokerage + Real Market Option Execution Slippage (from DuckDB tick data)
+            # Replaces old fixed 1.0% formula (which penalized up to ₹1,462 on 10 lots) with real market tick gaps
+            try:
+                from duckdb_engine import duckdb_engine
+                con = duckdb_engine.get_connection(read_only=True)
+                ticks = con.execute("""
+                    SELECT ltp FROM nifty_ticks 
+                    WHERE strike = ? AND type = ? 
+                    ORDER BY timestamp DESC LIMIT 5
+                """, (float(pos.get("strike", 0)), str(pos.get("option_type", "CE")))).fetchall()
+                if ticks and len(ticks) >= 2:
+                    p_list = [r[0] for r in ticks if r[0] is not None]
+                    gaps = [abs(p_list[i] - p_list[i+1]) for i in range(len(p_list)-1)]
+                    slip_leg = max(0.05, min(0.35, round(sum(gaps)/len(gaps), 2)))
+                else:
+                    slip_leg = 0.15
+            except Exception:
+                slip_leg = 0.15
+
+            slip_entry_pts = slip_leg
+            slip_exit_pts = slip_leg
             slippage_pts = round(slip_entry_pts + slip_exit_pts, 2)
             slippage_rupees = round(slippage_pts * qty, 2)
             brokerage = round(lots * BROKERAGE_PER_LOT, 2)
@@ -255,6 +335,15 @@ class MultiUserTradingManager:
             # 3. Delete from open positions
             cursor.execute("DELETE FROM user_positions WHERE trade_id = ?", (trade_id,))
             conn.commit()
+
+        # Update last closed trade timestamp for user (ensures subsequent auto-trades only take fresh post-close signals)
+        self._last_trade_closed_time[user_id] = now_dt.timestamp()
+
+        # Dismiss any outdated pending alerts for this user
+        try:
+            self.db.dismiss_all_alerts(user_id)
+        except Exception:
+            pass
 
         # Clean tracking & dispatch Telegram Exit Alert
         self._last_notified_sl.pop(trade_id, None)
@@ -519,13 +608,17 @@ class MultiUserTradingManager:
             if user_pref_dir != "BOTH" and user_pref_dir != signal_dir:
                 continue
 
+            is_auto_active = bool(master_auto or user_cfg.get("auto_trade_enabled", 0) == 1)
+
             # 1. Strict Signal Throttle: At least 45 seconds between signals/trades per user
             last_time = self._last_signal_time.get(user_id, 0)
             if now_time - last_time < 45.0:
                 continue
 
-            # 2. Check Maximum Active Open Positions Limit (default 1)
-            max_open = int(user_cfg.get("max_open_positions", 1))
+            # 2. Check Maximum Active Open Positions Limit:
+            # Rule 1: "auto mode on per ye ek traid ek barme lega"
+            # In Auto Mode, STRICTLY only 1 trade at a time is permitted!
+            max_open = 1 if is_auto_active else int(user_cfg.get("max_open_positions", 1))
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("SELECT COUNT(*) FROM user_positions WHERE user_id = ? AND status = 'OPEN'", (user_id,))
@@ -542,11 +635,23 @@ class MultiUserTradingManager:
                 if cursor.fetchone()[0] > 0:
                     continue
 
+            # 4. Post-Close Signal Verification for Auto Mode:
+            # Rule 2: "jab wo close hogi tabhi dusri traid close hone ke badke time ki traid lega"
+            # When previous trade closes, next trade MUST ONLY take a signal generated AFTER the close time.
+            if is_auto_active:
+                last_closed_ts = self.get_last_closed_trade_time(user_id)
+                if last_closed_ts > 0:
+                    sig_ts = self._parse_signal_timestamp(signal_data, fallback=now_time)
+                    # If signal timestamp is <= the previous trade's exit timestamp, REJECT it!
+                    if sig_ts <= last_closed_ts:
+                        continue
+                    # Cooldown buffer (20 seconds) after trade exit so market establishes a fresh setup
+                    if now_time - last_closed_ts < 20.0:
+                        continue
+
             lots = int(user_cfg.get("lots", 1))
             target_pts = float(user_cfg.get("target_pts", 35.0))
             sl_pts = float(user_cfg.get("sl_pts", 25.0))
-
-            is_auto_active = bool(master_auto or user_cfg.get("auto_trade_enabled", 0) == 1)
 
             if is_auto_active:
                 # ── Auto-Trade Mode: Execute instantly ──
