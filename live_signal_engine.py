@@ -62,6 +62,8 @@ class LiveSignalEngine:
             "cooldown_until": None        # Mandatory post-exit cooling window
         }
         self.price_history = []
+        self.candle_bars = []
+        self.last_st_trend = None
         self.last_signal_time = 0.0
         self.last_tick_eval_time = 0.0
         self.load_state()
@@ -165,6 +167,138 @@ class LiveSignalEngine:
         if check_dt > m_close:
             return False, "Market Closed (Post-Market, closed at 03:30 PM)"
         return True, "Market Open"
+
+    # ══════════════════════════════════════════════════════════════════
+    # SUPERTREND INDICATOR (10, 2.0) - EXACT CHART PARITY
+    # ══════════════════════════════════════════════════════════════════
+    def get_or_update_candles(self, spot_price, ts_str):
+        """Maintains rolling 1-minute OHLC candle bars from DuckDB and live spot ticks."""
+        if not hasattr(self, "candle_bars") or not self.candle_bars:
+            self.candle_bars = []
+            try:
+                from duckdb_engine import DuckDBEngine
+                db = DuckDBEngine()
+                df_c = db.get_candles(interval_seconds=60, limit=80)
+                if df_c is not None and not df_c.empty:
+                    for _, row in df_c.iterrows():
+                        self.candle_bars.append({
+                            "open": float(row["open"]),
+                            "high": float(row["high"]),
+                            "low": float(row["low"]),
+                            "close": float(row["close"]),
+                            "time": int(row.get("candle_time", 0)),
+                            "key": datetime.fromtimestamp(int(row.get("candle_time", 0))).strftime("%Y-%m-%d %H:%M") if row.get("candle_time") else ""
+                        })
+            except Exception:
+                pass
+
+        min_key = ts_str[:16] if ts_str else ""
+        if not self.candle_bars:
+            self.candle_bars.append({"open": spot_price, "high": spot_price, "low": spot_price, "close": spot_price, "key": min_key})
+        else:
+            last = self.candle_bars[-1]
+            if last.get("key") == min_key or not min_key:
+                last["high"] = max(last["high"], spot_price)
+                last["low"] = min(last["low"], spot_price)
+                last["close"] = spot_price
+            else:
+                self.candle_bars.append({"open": spot_price, "high": spot_price, "low": spot_price, "close": spot_price, "key": min_key})
+                if len(self.candle_bars) > 120:
+                    self.candle_bars.pop(0)
+
+        return self.candle_bars
+
+    def calculate_supertrend(self, candles=None, period=10, multiplier=2.0):
+        """
+        Computes 10, 2.0 SuperTrend matching TradingView and LightweightCharts:
+        Returns:
+            trend: 1 (Bullish/Green -> CALL), -1 (Bearish/Red -> PUT)
+            st_val: float (price level of current active SuperTrend line)
+            trend_flip: bool (True if the trend flipped on the latest candle)
+            st_bull_line: float (Green lower band)
+            st_bear_line: float (Red upper band)
+        """
+        if not candles:
+            candles = getattr(self, "candle_bars", [])
+        if not candles or len(candles) < 2:
+            return 1, 0.0, False, 0.0, 0.0
+
+        n = len(candles)
+        tr = [0.0] * n
+        for i in range(n):
+            c = candles[i]
+            h = float(c.get("high", c["close"]))
+            l = float(c.get("low", c["close"]))
+            if i == 0:
+                tr[i] = h - l
+            else:
+                prev_c = float(candles[i - 1]["close"])
+                tr[i] = max(h - l, abs(h - prev_c), abs(l - prev_c))
+
+        atr = [0.0] * n
+        sum_tr = 0.0
+        for i in range(n):
+            if i < period:
+                sum_tr += tr[i]
+                atr[i] = sum_tr / (i + 1)
+            else:
+                atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
+
+        prev_final_upper = 0.0
+        prev_final_lower = 0.0
+        prev_trend = 1
+        final_trend = 1
+        final_upper = 0.0
+        final_lower = 0.0
+        trend_flip = False
+
+        for i in range(n):
+            c = candles[i]
+            h = float(c.get("high", c["close"]))
+            l = float(c.get("low", c["close"]))
+            close = float(c["close"])
+            hl2 = (h + l) / 2.0
+            cur_atr = atr[i]
+            basic_upper = hl2 + (multiplier * cur_atr)
+            basic_lower = hl2 - (multiplier * cur_atr)
+
+            cur_final_upper = basic_upper
+            cur_final_lower = basic_lower
+
+            if i > 0:
+                prev_close = float(candles[i - 1]["close"])
+                if basic_lower > prev_final_lower or prev_close < prev_final_lower:
+                    cur_final_lower = basic_lower
+                else:
+                    cur_final_lower = prev_final_lower
+
+                if basic_upper < prev_final_upper or prev_close > prev_final_upper:
+                    cur_final_upper = basic_upper
+                else:
+                    cur_final_upper = prev_final_upper
+
+            if i > 0:
+                if prev_trend == -1 and close > prev_final_upper:
+                    trend = 1
+                elif prev_trend == 1 and close < prev_final_lower:
+                    trend = -1
+                else:
+                    trend = prev_trend
+            else:
+                trend = 1 if close >= hl2 else -1
+
+            if i == n - 1:
+                trend_flip = (i > 0 and trend != prev_trend)
+                final_trend = trend
+                final_upper = cur_final_upper
+                final_lower = cur_final_lower
+
+            prev_final_upper = cur_final_upper
+            prev_final_lower = cur_final_lower
+            prev_trend = trend
+
+        active_st_val = round(final_lower if final_trend == 1 else final_upper, 2)
+        return final_trend, active_st_val, trend_flip, round(final_lower, 2), round(final_upper, 2)
 
     def update_live_positions(self):
         """Monitors active positions against live DuckDB option chain and triggers Target/SL exits"""
@@ -565,14 +699,17 @@ class LiveSignalEngine:
         # Send Real-Time Telegram Alert
         try:
             from telegram_notifier import send_telegram_message
+            st_badge = "🟢 GREEN LINE (ST BULL)" if sig.get("supertrend_color") == "GREEN" or "CE" in sig.get("action", "") else "🔴 RED LINE (ST BEAR)"
+            st_val_str = f"₹{sig['supertrend_value']:.1f}" if sig.get("supertrend_value") else "N/A"
             t_msg = (
                 f"⚡ *NEW LIVE TRADE EXECUTED*\n"
                 f"━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 *Contract*: `{sig['contract']}`\n"
                 f"📈 *Direction*: `{sig['action']}`\n"
+                f"📊 *SuperTrend*: `{st_badge}` ({st_val_str})\n"
                 f"💵 *Entry LTP*: `₹{entry_ltp:.2f}`\n"
-                f"🛑 *Stop Loss*: `₹{sig['stop_loss_price']:.2f}` (-7.5 pts)\n"
-                f"🎯 *Target*: `₹{sig['target_plan']['target_2_runner']:.2f}` (+12 pts)\n"
+                f"🛑 *Stop Loss*: `₹{sig['stop_loss_price']:.2f}`\n"
+                f"🎯 *Target*: `₹{sig['target_plan']['target_2_runner']:.2f}`\n"
                 f"📦 *Quantity*: `{qty}` ({sig.get('lots', 2)} Lots)\n"
                 f"🛡️ *Setup*: {sig.get('weapon_reason', 'Selective Master')}\n"
                 f"⏰ *Time*: `{exec_time}`"
@@ -1188,15 +1325,22 @@ class LiveSignalEngine:
         self.last_tick_eval_time = now_ts_sec
 
         # 3. Track Price History & Calculate Trend Momentum
+        candles = self.get_or_update_candles(spot_price, ts_str)
         if not hasattr(self, "price_history"):
             self.price_history = []
         self.price_history.append((ts_str, spot_price))
-        if len(self.price_history) > 60:
-            self.price_history.pop(0)
 
-        # Warm-up requirement: Must accumulate at least 21 ticks for reliable EMA
-        if len(self.price_history) < 21:
-            return {"status": "warmup", "message": f"Accumulating price ticks ({len(self.price_history)}/21)..."}
+        # Instant warm-up: Seed from candle history if available so engine starts immediately
+        if len(self.price_history) < 21 and hasattr(self, "candle_bars") and len(self.candle_bars) >= 10:
+            for c in self.candle_bars:
+                self.price_history.append((ts_str, float(c.get("close", spot_price))))
+
+        if len(self.price_history) > 60:
+            self.price_history = self.price_history[-60:]
+
+        # Warm-up requirement: Must accumulate at least 15 ticks for reliable EMA
+        if len(self.price_history) < 15:
+            return {"status": "warmup", "message": f"Accumulating price ticks ({len(self.price_history)}/15)..."}
 
         # Calculate EMA9 and EMA21
         spots = [s for _, s in self.price_history]
@@ -1257,15 +1401,31 @@ class LiveSignalEngine:
         sl_pts = float(self.state.get("stop_loss_pts", 15.0))
 
         # ══════════════════════════════════════════════════════════════════
+        # 4. SUPERTREND (10, 2.0) CONFLUENCE & TRIGGER MATRIX
+        # Rule: Green Line (ST Bull) -> BUY_CE only | Red Line (ST Bear) -> BUY_PE only
+        # ══════════════════════════════════════════════════════════════════
+        candles = self.get_or_update_candles(spot_price, ts_str)
+        st_trend, st_val, st_flip, st_bull_line, st_bear_line = self.calculate_supertrend(candles, 10, 2.0)
+        is_st_green = (st_trend == 1)
+        is_st_red = (st_trend == -1)
+        self.state["supertrend"] = {
+            "trend": "BULL_GREEN" if is_st_green else "BEAR_RED",
+            "value": st_val,
+            "line": "ST Bull (CE)" if is_st_green else "ST Bear (PE)",
+            "color": "#22c55e" if is_st_green else "#ef4444"
+        }
+
+        # ══════════════════════════════════════════════════════════════════
         # STRICT TRIGGER LOGIC (CONFLUENCE REQUIRED: NO NAKED BREAKOUTS):
         # ══════════════════════════════════════════════════════════════════
         now_ts_sec = datetime.now().timestamp()
         if hasattr(self, "last_signal_time") and (now_ts_sec - self.last_signal_time < 45.0):
             return {"status": "monitoring", "spot": spot_price, "message": "Signal engine in debounce cooldown"}
 
-        # 1. BULLISH BREAKOUT SETUP: Fresh crossing of R1 with EMA trend & Put writers support
         breakout_zone = (r1 <= spot_price <= r1 + 20.0)
-        if breakout_zone and is_bull_trend and oi_bull_confirmed and (spot_run >= 5.0):
+
+        # ─── 1. GREEN LINE ACTIVE: CALL (BUY_CE) SETUPS ONLY ─────────────
+        if is_st_green:
             strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "CALL")
             ce_ltp = 145.0
             for t in ticks:
@@ -1273,87 +1433,128 @@ class LiveSignalEngine:
                     ce_ltp = float(t.get("ltp") or ce_ltp)
                     break
 
-            signal = {
-                "signal_id": f"SIG_{int(datetime.now().timestamp())}",
-                "trade_id": f"TRD_{int(datetime.now().timestamp())}",
-                "timestamp": ts_str,
-                "entry_time": ts_str,
-                "action": "BUY_CE",
-                "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
-                "direction": "CALL",
-                "strike_price": int(strike),
-                "option_type": "CE",
-                "entry_spot": round(spot_price, 2),
-                "entry_ltp": round(ce_ltp, 2),
-                "lots": lots,
-                "qty": qty,
-                "stop_loss_pts": sl_pts,
-                "stop_loss_price": round(ce_ltp - sl_pts, 2),
-                "target_plan": {
-                    "breakeven_lock": round(ce_ltp + 6.0, 2),
-                    "target_1": round(ce_ltp + 15.0, 2),
-                    "target_2_runner": round(ce_ltp + 35.0, 2)
-                },
-                "target_price": round(ce_ltp + 35.0, 2),
-                "max_risk_rupees": round(sl_pts * qty, 2),
-                "margin_utilized": round(ce_ltp * qty, 2),
-                "target_profit_rupees": round(35.0 * qty, 2),
-                "ma_9": round(ema9, 2),
-                "ema_21": round(ema21, 2),
-                "delta": delta,
-                "oi": int(pe_oi_tot),
-                "oi_change": int(pe_oichg_tot),
-                "weapon_signature": "WEAPON_R1_BREAKOUT / INSTITUTIONAL_SURGE",
-                "weapon_reason": f"Resistance {r1:.1f} Breakout Confirmed (EMA9 > EMA21 +{ema_diff:.1f}pts) | Put OI Support | Delta {delta:.2f}",
-                "status": "ACTIVE_PENDING_CONFIRMATION"
-            }
+            # Trigger A: SuperTrend Bullish Flip (Fresh Green Line Born)
+            if st_flip:
+                signal = {
+                    "signal_id": f"SIG_{int(datetime.now().timestamp())}",
+                    "trade_id": f"TRD_{int(datetime.now().timestamp())}",
+                    "timestamp": ts_str,
+                    "entry_time": ts_str,
+                    "action": "BUY_CE",
+                    "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
+                    "direction": "CALL",
+                    "strike_price": int(strike),
+                    "option_type": "CE",
+                    "entry_spot": round(spot_price, 2),
+                    "entry_ltp": round(ce_ltp, 2),
+                    "lots": lots,
+                    "qty": qty,
+                    "stop_loss_pts": sl_pts,
+                    "stop_loss_price": round(ce_ltp - sl_pts, 2),
+                    "target_plan": {
+                        "breakeven_lock": round(ce_ltp + 6.0, 2),
+                        "target_1": round(ce_ltp + 15.0, 2),
+                        "target_2_runner": round(ce_ltp + 35.0, 2)
+                    },
+                    "target_price": round(ce_ltp + 35.0, 2),
+                    "max_risk_rupees": round(sl_pts * qty, 2),
+                    "margin_utilized": round(ce_ltp * qty, 2),
+                    "target_profit_rupees": round(35.0 * qty, 2),
+                    "ma_9": round(ema9, 2),
+                    "ema_21": round(ema21, 2),
+                    "delta": delta,
+                    "oi": int(pe_oi_tot),
+                    "oi_change": int(pe_oichg_tot),
+                    "supertrend_color": "GREEN",
+                    "supertrend_value": st_val,
+                    "supertrend_line": "ST Bull",
+                    "weapon_signature": "WEAPON_SUPERTREND_GREEN_LINE / BULLISH_FLIP",
+                    "weapon_reason": f"SuperTrend turned GREEN (ST Bull ₹{st_val:.1f}) | Green Line Call Trigger | Delta {delta:.2f}",
+                    "status": "ACTIVE_PENDING_CONFIRMATION"
+                }
 
-        # 2. SUPPORT BOUNCE REVERSAL SETUP: Spot bouncing off S1 with Put writers floor
-        elif (s1 - 5.0 <= spot_price <= s1 + 12.0) and (spot_price > ema9) and (spot_run >= 6.0) and oi_bull_confirmed:
-            strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "CALL")
-            ce_ltp = 145.0
-            for t in ticks:
-                if t.get("type") == "CE" and float(t.get("strike", 0)) == strike:
-                    ce_ltp = float(t.get("ltp") or ce_ltp)
-                    break
+            # Trigger B: R1 Breakout with Green Line Confluence
+            elif breakout_zone and is_bull_trend and (spot_run >= 4.0):
+                signal = {
+                    "signal_id": f"SIG_{int(datetime.now().timestamp())}",
+                    "trade_id": f"TRD_{int(datetime.now().timestamp())}",
+                    "timestamp": ts_str,
+                    "entry_time": ts_str,
+                    "action": "BUY_CE",
+                    "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
+                    "direction": "CALL",
+                    "strike_price": int(strike),
+                    "option_type": "CE",
+                    "entry_spot": round(spot_price, 2),
+                    "entry_ltp": round(ce_ltp, 2),
+                    "lots": lots,
+                    "qty": qty,
+                    "stop_loss_pts": sl_pts,
+                    "stop_loss_price": round(ce_ltp - sl_pts, 2),
+                    "target_plan": {
+                        "breakeven_lock": round(ce_ltp + 6.0, 2),
+                        "target_1": round(ce_ltp + 15.0, 2),
+                        "target_2_runner": round(ce_ltp + 35.0, 2)
+                    },
+                    "target_price": round(ce_ltp + 35.0, 2),
+                    "max_risk_rupees": round(sl_pts * qty, 2),
+                    "margin_utilized": round(ce_ltp * qty, 2),
+                    "target_profit_rupees": round(35.0 * qty, 2),
+                    "ma_9": round(ema9, 2),
+                    "ema_21": round(ema21, 2),
+                    "delta": delta,
+                    "oi": int(pe_oi_tot),
+                    "oi_change": int(pe_oichg_tot),
+                    "supertrend_color": "GREEN",
+                    "supertrend_value": st_val,
+                    "supertrend_line": "ST Bull",
+                    "weapon_signature": "WEAPON_R1_BREAKOUT / GREEN_CONFLUENCE",
+                    "weapon_reason": f"Resistance {r1:.1f} Breakout + Green ST Bull Support at {st_val:.1f} | Delta {delta:.2f}",
+                    "status": "ACTIVE_PENDING_CONFIRMATION"
+                }
 
-            signal = {
-                "signal_id": f"SIG_{int(datetime.now().timestamp())}",
-                "trade_id": f"TRD_{int(datetime.now().timestamp())}",
-                "timestamp": ts_str,
-                "entry_time": ts_str,
-                "action": "BUY_CE",
-                "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
-                "direction": "CALL",
-                "strike_price": int(strike),
-                "option_type": "CE",
-                "entry_spot": round(spot_price, 2),
-                "entry_ltp": round(ce_ltp, 2),
-                "lots": lots,
-                "qty": qty,
-                "stop_loss_pts": sl_pts,
-                "stop_loss_price": round(ce_ltp - sl_pts, 2),
-                "target_plan": {
-                    "breakeven_lock": round(ce_ltp + 6.0, 2),
-                    "target_1": round(ce_ltp + 12.0, 2),
-                    "target_2_runner": round(ce_ltp + 30.0, 2)
-                },
-                "target_price": round(ce_ltp + 30.0, 2),
-                "max_risk_rupees": round(sl_pts * qty, 2),
-                "margin_utilized": round(ce_ltp * qty, 2),
-                "target_profit_rupees": round(30.0 * qty, 2),
-                "ma_9": round(ema9, 2),
-                "ema_21": round(ema21, 2),
-                "delta": delta,
-                "oi": int(pe_oi_tot),
-                "oi_change": int(pe_oichg_tot),
-                "weapon_signature": "WEAPON_BOTTOM_PUT_SHIELD / SUPPORT_BOUNCE",
-                "weapon_reason": f"Support Bounce at {s1:.1f} confirmed with EMA9 reclaim | Delta {delta:.2f}",
-                "status": "ACTIVE_PENDING_CONFIRMATION"
-            }
+            # Trigger C: S1 or Green Line Bounce Reversal
+            elif ((s1 - 5.0 <= spot_price <= s1 + 15.0) or (st_bull_line <= spot_price <= st_bull_line + 10.0)) and (spot_price > ema9) and (spot_run >= 4.0):
+                signal = {
+                    "signal_id": f"SIG_{int(datetime.now().timestamp())}",
+                    "trade_id": f"TRD_{int(datetime.now().timestamp())}",
+                    "timestamp": ts_str,
+                    "entry_time": ts_str,
+                    "action": "BUY_CE",
+                    "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
+                    "direction": "CALL",
+                    "strike_price": int(strike),
+                    "option_type": "CE",
+                    "entry_spot": round(spot_price, 2),
+                    "entry_ltp": round(ce_ltp, 2),
+                    "lots": lots,
+                    "qty": qty,
+                    "stop_loss_pts": sl_pts,
+                    "stop_loss_price": round(ce_ltp - sl_pts, 2),
+                    "target_plan": {
+                        "breakeven_lock": round(ce_ltp + 6.0, 2),
+                        "target_1": round(ce_ltp + 12.0, 2),
+                        "target_2_runner": round(ce_ltp + 30.0, 2)
+                    },
+                    "target_price": round(ce_ltp + 30.0, 2),
+                    "max_risk_rupees": round(sl_pts * qty, 2),
+                    "margin_utilized": round(ce_ltp * qty, 2),
+                    "target_profit_rupees": round(30.0 * qty, 2),
+                    "ma_9": round(ema9, 2),
+                    "ema_21": round(ema21, 2),
+                    "delta": delta,
+                    "oi": int(pe_oi_tot),
+                    "oi_change": int(pe_oichg_tot),
+                    "supertrend_color": "GREEN",
+                    "supertrend_value": st_val,
+                    "supertrend_line": "ST Bull",
+                    "weapon_signature": "WEAPON_BOTTOM_PUT_SHIELD / GREEN_LINE_BOUNCE",
+                    "weapon_reason": f"Support Bounce off Green Line {st_bull_line:.1f} confirmed with EMA9 reclaim | Delta {delta:.2f}",
+                    "status": "ACTIVE_PENDING_CONFIRMATION"
+                }
 
-        # 3. BEARISH BREAKDOWN SETUP: Fresh breakdown below S1 with Call writers aggression
-        elif (s1 - 20.0 <= spot_price <= s1) and is_bear_trend and oi_bear_confirmed and (spot_run <= -5.0):
+        # ─── 2. RED LINE ACTIVE: PUT (BUY_PE) SETUPS ONLY ───────────────
+        elif is_st_red:
             strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "PUT")
             pe_ltp = 145.0
             for t in ticks:
@@ -1361,84 +1562,125 @@ class LiveSignalEngine:
                     pe_ltp = float(t.get("ltp") or pe_ltp)
                     break
 
-            signal = {
-                "signal_id": f"SIG_{int(datetime.now().timestamp())}",
-                "trade_id": f"TRD_{int(datetime.now().timestamp())}",
-                "timestamp": ts_str,
-                "entry_time": ts_str,
-                "action": "BUY_PE",
-                "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
-                "direction": "PUT",
-                "strike_price": int(strike),
-                "option_type": "PE",
-                "entry_spot": round(spot_price, 2),
-                "entry_ltp": round(pe_ltp, 2),
-                "lots": lots,
-                "qty": qty,
-                "stop_loss_pts": sl_pts,
-                "stop_loss_price": round(pe_ltp - sl_pts, 2),
-                "target_plan": {
-                    "breakeven_lock": round(pe_ltp + 6.0, 2),
-                    "target_1": round(pe_ltp + 15.0, 2),
-                    "target_2_runner": round(pe_ltp + 35.0, 2)
-                },
-                "target_price": round(pe_ltp + 35.0, 2),
-                "max_risk_rupees": round(sl_pts * qty, 2),
-                "margin_utilized": round(pe_ltp * qty, 2),
-                "target_profit_rupees": round(35.0 * qty, 2),
-                "ma_9": round(ema9, 2),
-                "ema_21": round(ema21, 2),
-                "delta": delta,
-                "oi": int(ce_oi_tot),
-                "oi_change": int(ce_oichg_tot),
-                "weapon_signature": "WEAPON_S1_BREAKDOWN / INSTITUTIONAL_SELLOFF",
-                "weapon_reason": f"Support {s1:.1f} Breakdown Confirmed (EMA9 < EMA21 {ema_diff:.1f}pts) | Call OI Pressure | Delta {delta:.2f}",
-                "status": "ACTIVE_PENDING_CONFIRMATION"
-            }
+            # Trigger A: SuperTrend Bearish Flip (Fresh Red Line Born)
+            if st_flip:
+                signal = {
+                    "signal_id": f"SIG_{int(datetime.now().timestamp())}",
+                    "trade_id": f"TRD_{int(datetime.now().timestamp())}",
+                    "timestamp": ts_str,
+                    "entry_time": ts_str,
+                    "action": "BUY_PE",
+                    "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
+                    "direction": "PUT",
+                    "strike_price": int(strike),
+                    "option_type": "PE",
+                    "entry_spot": round(spot_price, 2),
+                    "entry_ltp": round(pe_ltp, 2),
+                    "lots": lots,
+                    "qty": qty,
+                    "stop_loss_pts": sl_pts,
+                    "stop_loss_price": round(pe_ltp - sl_pts, 2),
+                    "target_plan": {
+                        "breakeven_lock": round(pe_ltp + 6.0, 2),
+                        "target_1": round(pe_ltp + 15.0, 2),
+                        "target_2_runner": round(pe_ltp + 35.0, 2)
+                    },
+                    "target_price": round(pe_ltp + 35.0, 2),
+                    "max_risk_rupees": round(sl_pts * qty, 2),
+                    "margin_utilized": round(pe_ltp * qty, 2),
+                    "target_profit_rupees": round(35.0 * qty, 2),
+                    "ma_9": round(ema9, 2),
+                    "ema_21": round(ema21, 2),
+                    "delta": delta,
+                    "oi": int(ce_oi_tot),
+                    "oi_change": int(ce_oichg_tot),
+                    "supertrend_color": "RED",
+                    "supertrend_value": st_val,
+                    "supertrend_line": "ST Bear",
+                    "weapon_signature": "WEAPON_SUPERTREND_RED_LINE / BEARISH_FLIP",
+                    "weapon_reason": f"SuperTrend turned RED (ST Bear ₹{st_val:.1f}) | Red Line Put Trigger | Delta {delta:.2f}",
+                    "status": "ACTIVE_PENDING_CONFIRMATION"
+                }
 
-        # 4. RESISTANCE REJECTION REVERSAL SETUP: Spot rejecting at R1 with Call writers wall
-        elif (r1 - 12.0 <= spot_price <= r1 + 5.0) and (spot_price < ema9) and (spot_run <= -6.0) and oi_bear_confirmed:
-            strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "PUT")
-            pe_ltp = 145.0
-            for t in ticks:
-                if t.get("type") == "PE" and float(t.get("strike", 0)) == strike:
-                    pe_ltp = float(t.get("ltp") or pe_ltp)
-                    break
+            # Trigger B: S1 Breakdown with Red Line Confluence
+            elif (s1 - 20.0 <= spot_price <= s1) and is_bear_trend and (spot_run <= -4.0):
+                signal = {
+                    "signal_id": f"SIG_{int(datetime.now().timestamp())}",
+                    "trade_id": f"TRD_{int(datetime.now().timestamp())}",
+                    "timestamp": ts_str,
+                    "entry_time": ts_str,
+                    "action": "BUY_PE",
+                    "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
+                    "direction": "PUT",
+                    "strike_price": int(strike),
+                    "option_type": "PE",
+                    "entry_spot": round(spot_price, 2),
+                    "entry_ltp": round(pe_ltp, 2),
+                    "lots": lots,
+                    "qty": qty,
+                    "stop_loss_pts": sl_pts,
+                    "stop_loss_price": round(pe_ltp - sl_pts, 2),
+                    "target_plan": {
+                        "breakeven_lock": round(pe_ltp + 6.0, 2),
+                        "target_1": round(pe_ltp + 15.0, 2),
+                        "target_2_runner": round(pe_ltp + 35.0, 2)
+                    },
+                    "target_price": round(pe_ltp + 35.0, 2),
+                    "max_risk_rupees": round(sl_pts * qty, 2),
+                    "margin_utilized": round(pe_ltp * qty, 2),
+                    "target_profit_rupees": round(35.0 * qty, 2),
+                    "ma_9": round(ema9, 2),
+                    "ema_21": round(ema21, 2),
+                    "delta": delta,
+                    "oi": int(ce_oi_tot),
+                    "oi_change": int(ce_oichg_tot),
+                    "supertrend_color": "RED",
+                    "supertrend_value": st_val,
+                    "supertrend_line": "ST Bear",
+                    "weapon_signature": "WEAPON_S1_BREAKDOWN / RED_CONFLUENCE",
+                    "weapon_reason": f"Support {s1:.1f} Breakdown + Red ST Bear Resistance at {st_val:.1f} | Delta {delta:.2f}",
+                    "status": "ACTIVE_PENDING_CONFIRMATION"
+                }
 
-            signal = {
-                "signal_id": f"SIG_{int(datetime.now().timestamp())}",
-                "trade_id": f"TRD_{int(datetime.now().timestamp())}",
-                "timestamp": ts_str,
-                "entry_time": ts_str,
-                "action": "BUY_PE",
-                "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
-                "direction": "PUT",
-                "strike_price": int(strike),
-                "option_type": "PE",
-                "entry_spot": round(spot_price, 2),
-                "entry_ltp": round(pe_ltp, 2),
-                "lots": lots,
-                "qty": qty,
-                "stop_loss_pts": sl_pts,
-                "stop_loss_price": round(pe_ltp - sl_pts, 2),
-                "target_plan": {
-                    "breakeven_lock": round(pe_ltp + 6.0, 2),
-                    "target_1": round(pe_ltp + 12.0, 2),
-                    "target_2_runner": round(pe_ltp + 30.0, 2)
-                },
-                "target_price": round(pe_ltp + 30.0, 2),
-                "max_risk_rupees": round(sl_pts * qty, 2),
-                "margin_utilized": round(pe_ltp * qty, 2),
-                "target_profit_rupees": round(30.0 * qty, 2),
-                "ma_9": round(ema9, 2),
-                "ema_21": round(ema21, 2),
-                "delta": delta,
-                "oi": int(ce_oi_tot),
-                "oi_change": int(ce_oichg_tot),
-                "weapon_signature": "WEAPON_TOP_CALL_FORTRESS / RESISTANCE_REJECTION",
-                "weapon_reason": f"Resistance Rejection at {r1:.1f} confirmed with EMA9 failure | Delta {delta:.2f}",
-                "status": "ACTIVE_PENDING_CONFIRMATION"
-            }
+            # Trigger C: R1 or Red Line Rejection Reversal
+            elif ((r1 - 15.0 <= spot_price <= r1 + 5.0) or (st_bear_line - 10.0 <= spot_price <= st_bear_line)) and (spot_price < ema9) and (spot_run <= -4.0):
+                signal = {
+                    "signal_id": f"SIG_{int(datetime.now().timestamp())}",
+                    "trade_id": f"TRD_{int(datetime.now().timestamp())}",
+                    "timestamp": ts_str,
+                    "entry_time": ts_str,
+                    "action": "BUY_PE",
+                    "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
+                    "direction": "PUT",
+                    "strike_price": int(strike),
+                    "option_type": "PE",
+                    "entry_spot": round(spot_price, 2),
+                    "entry_ltp": round(pe_ltp, 2),
+                    "lots": lots,
+                    "qty": qty,
+                    "stop_loss_pts": sl_pts,
+                    "stop_loss_price": round(pe_ltp - sl_pts, 2),
+                    "target_plan": {
+                        "breakeven_lock": round(pe_ltp + 6.0, 2),
+                        "target_1": round(pe_ltp + 12.0, 2),
+                        "target_2_runner": round(pe_ltp + 30.0, 2)
+                    },
+                    "target_price": round(pe_ltp + 30.0, 2),
+                    "max_risk_rupees": round(sl_pts * qty, 2),
+                    "margin_utilized": round(pe_ltp * qty, 2),
+                    "target_profit_rupees": round(30.0 * qty, 2),
+                    "ma_9": round(ema9, 2),
+                    "ema_21": round(ema21, 2),
+                    "delta": delta,
+                    "oi": int(ce_oi_tot),
+                    "oi_change": int(ce_oichg_tot),
+                    "supertrend_color": "RED",
+                    "supertrend_value": st_val,
+                    "supertrend_line": "ST Bear",
+                    "weapon_signature": "WEAPON_TOP_CALL_FORTRESS / RED_LINE_REJECTION",
+                    "weapon_reason": f"Resistance Rejection off Red Line {st_bear_line:.1f} confirmed with EMA9 failure | Delta {delta:.2f}",
+                    "status": "ACTIVE_PENDING_CONFIRMATION"
+                }
 
         if signal:
             self.last_signal_time = now_ts_sec

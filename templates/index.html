@@ -239,6 +239,7 @@
         .ind-btn.active-ema9 { background: rgba(56, 189, 248, 0.2); color: #38bdf8; border-color: #38bdf8; }
         .ind-btn.active-ema21 { background: rgba(245, 158, 11, 0.2); color: #f59e0b; border-color: #f59e0b; }
         .ind-btn.active-vwap { background: rgba(168, 85, 247, 0.2); color: #a855f7; border-color: #a855f7; }
+        .ind-btn.active-supertrend { background: rgba(34, 197, 94, 0.2); color: #4ade80; border-color: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.3); }
 
         .chart-wrapper {
             position: relative; width: 100%; height: 580px;
@@ -1422,6 +1423,7 @@
                     <button id="btn-ema9" class="ind-btn active-ema9" onclick="toggleIndicator('ema9')">EMA 9</button>
                     <button id="btn-ema21" class="ind-btn active-ema21" onclick="toggleIndicator('ema21')">EMA 21</button>
                     <button id="btn-vwap" class="ind-btn active-vwap" onclick="toggleIndicator('vwap')">VWAP</button>
+                    <button id="btn-supertrend" class="ind-btn active-supertrend" onclick="toggleIndicator('supertrend')" title="Toggle SuperTrend (10, 2) Signals">⚡ ST (10,2)</button>
                     <button id="btn-sr-lines" class="ind-btn active-ema9" onclick="toggleSrLines()" title="Toggle Dynamic AOC Support & Resistance Lines">📏 S/R Lines</button>
                     <button class="btn btn-outline" onclick="resetChartZoom()" style="font-size: 0.74rem; padding: 3px 8px;" title="Reset Zoom">🎯 Fit</button>
                     <button class="btn btn-outline" onclick="loadChartData()" style="font-size: 0.74rem; padding: 3px 8px;" title="Refresh Data">🔄</button>
@@ -1570,10 +1572,11 @@
                             Chg: <span class="legend-val" id="leg-chg">—</span>
                             Vol: <span class="legend-val" id="leg-vol">—</span>
                         </div>
-                        <div style="margin-top: 4px; display: flex; gap: 6px;" id="leg-ind">
+                        <div style="margin-top: 4px; display: flex; gap: 6px; flex-wrap: wrap;" id="leg-ind">
                             <span class="legend-ind-ema9" id="leg-ema9">EMA9: —</span>
                             <span class="legend-ind-ema21" id="leg-ema21">EMA21: —</span>
                             <span class="legend-ind-vwap" id="leg-vwap">VWAP: —</span>
+                            <span class="legend-ind-supertrend" id="leg-supertrend" style="color: #4ade80; font-weight: bold;">ST(10,2): —</span>
                         </div>
                     </div>
                     <div id="chart-container" style="width: 100%; height: 100%;"></div>
@@ -1605,13 +1608,16 @@
         let ema9Series = null;
         let ema21Series = null;
         let vwapSeries = null;
+        let supertrendUpSeries = null;
+        let supertrendDownSeries = null;
+        let supertrendMarkers = [];
         let strikeResSeries = null;
         let strikeSupSeries = null;
         let activeChartStrikeSrEnabled = false;
         let activeChartStrikeSrStrike = 24150;
         let cachedChartStrikeSrData = [];
         let currentTimeframe = 60;
-        let activeIndicators = { ema9: true, ema21: true, vwap: true };
+        let activeIndicators = { ema9: true, ema21: true, vwap: true, supertrend: true };
         let currentCandleData = [];
         let fullDayCandleData = [];
         let resizeObserver = null;
@@ -1797,6 +1803,9 @@
             if (ema9Series) ema9Series.applyOptions({ visible: !isIndicatorsHidden });
             if (ema21Series) ema21Series.applyOptions({ visible: !isIndicatorsHidden });
             if (vwapSeries) vwapSeries.applyOptions({ visible: !isIndicatorsHidden });
+            if (supertrendUpSeries) supertrendUpSeries.applyOptions({ visible: !isIndicatorsHidden });
+            if (supertrendDownSeries) supertrendDownSeries.applyOptions({ visible: !isIndicatorsHidden });
+            if (candleSeries) candleSeries.setMarkers((!isIndicatorsHidden && activeIndicators.supertrend) ? supertrendMarkers : []);
             closeAllDrawMenus();
         }
 
@@ -1823,13 +1832,18 @@
         }
 
         function clearIndicators() {
-            activeIndicators = { ema9: false, ema21: false, vwap: false };
-            ['ema9', 'ema21', 'vwap'].forEach(ind => {
+            activeIndicators = { ema9: false, ema21: false, vwap: false, supertrend: false };
+            ['ema9', 'ema21', 'vwap', 'supertrend'].forEach(ind => {
                 const btn = document.getElementById(`btn-${ind}`);
                 if (btn) btn.classList.remove(`active-${ind}`);
                 if (ind === 'ema9' && ema9Series) ema9Series.setData([]);
                 if (ind === 'ema21' && ema21Series) ema21Series.setData([]);
                 if (ind === 'vwap' && vwapSeries) vwapSeries.setData([]);
+                if (ind === 'supertrend') {
+                    if (supertrendUpSeries) supertrendUpSeries.setData([]);
+                    if (supertrendDownSeries) supertrendDownSeries.setData([]);
+                    if (candleSeries) candleSeries.setMarkers([]);
+                }
             });
             closeAllDrawMenus();
         }
@@ -3425,10 +3439,24 @@
             const ema9Data = calculateEMA(currentCandleData, 9);
             const ema21Data = calculateEMA(currentCandleData, 21);
             const vwapData = calculateVWAP(currentCandleData);
+            const stRes = calculateSuperTrend(currentCandleData, 10, 2.0);
 
             if (ema9Series && activeIndicators.ema9 && ema9Data.length > 0) ema9Series.update(ema9Data[ema9Data.length - 1]);
             if (ema21Series && activeIndicators.ema21 && ema21Data.length > 0) ema21Series.update(ema21Data[ema21Data.length - 1]);
             if (vwapSeries && activeIndicators.vwap && vwapData.length > 0) vwapSeries.update(vwapData[vwapData.length - 1]);
+            if (supertrendUpSeries && supertrendDownSeries) {
+                if (activeIndicators.supertrend) {
+                    supertrendUpSeries.setData(stRes.upSeries);
+                    supertrendDownSeries.setData(stRes.downSeries);
+                    supertrendMarkers = stRes.markers;
+                    if (candleSeries) candleSeries.setMarkers(supertrendMarkers);
+                } else {
+                    supertrendUpSeries.setData([]);
+                    supertrendDownSeries.setData([]);
+                    supertrendMarkers = [];
+                    if (candleSeries) candleSeries.setMarkers([]);
+                }
+            }
 
             updateLegendValues(updatedCandle);
             updateSpotPriceLine(livePrice);
@@ -3973,6 +4001,136 @@
             return result;
         }
 
+        function calculateSuperTrend(candles, period = 10, multiplier = 2.0) {
+            if (!candles || candles.length === 0) {
+                return { upSeries: [], downSeries: [], markers: [], latest: null };
+            }
+
+            const n = candles.length;
+            const tr = new Array(n);
+            for (let i = 0; i < n; i++) {
+                if (i === 0) {
+                    tr[i] = (candles[i].high || 0) - (candles[i].low || 0);
+                } else {
+                    const h = candles[i].high !== undefined ? candles[i].high : candles[i].close;
+                    const l = candles[i].low !== undefined ? candles[i].low : candles[i].close;
+                    const prevC = candles[i - 1].close || 0;
+                    tr[i] = Math.max(h - l, Math.abs(h - prevC), Math.abs(l - prevC));
+                }
+            }
+
+            const atr = new Array(n);
+            let sumTR = 0;
+            for (let i = 0; i < n; i++) {
+                if (i < period) {
+                    sumTR += tr[i];
+                    atr[i] = sumTR / (i + 1);
+                } else {
+                    atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period;
+                }
+            }
+
+            const upSeriesData = [];
+            const downSeriesData = [];
+            const markers = [];
+
+            let prevFinalUpper = 0;
+            let prevFinalLower = 0;
+            let prevTrend = 1;
+            let latestST = null;
+
+            for (let i = 0; i < n; i++) {
+                const c = candles[i];
+                const high = c.high !== undefined ? c.high : c.close;
+                const low = c.low !== undefined ? c.low : c.close;
+                const close = c.close;
+                const hl2 = (high + low) / 2;
+                const curAtr = atr[i] || 0;
+                const basicUpper = hl2 + (multiplier * curAtr);
+                const basicLower = hl2 - (multiplier * curAtr);
+
+                let finalUpper = basicUpper;
+                let finalLower = basicLower;
+
+                if (i > 0) {
+                    const prevClose = candles[i - 1].close;
+                    if (basicLower > prevFinalLower || prevClose < prevFinalLower) {
+                        finalLower = basicLower;
+                    } else {
+                        finalLower = prevFinalLower;
+                    }
+
+                    if (basicUpper < prevFinalUpper || prevClose > prevFinalUpper) {
+                        finalUpper = basicUpper;
+                    } else {
+                        finalUpper = prevFinalUpper;
+                    }
+                }
+
+                let trend = prevTrend;
+                if (i > 0) {
+                    if (prevTrend === -1 && close > prevFinalUpper) {
+                        trend = 1;
+                    } else if (prevTrend === 1 && close < prevFinalLower) {
+                        trend = -1;
+                    }
+                } else {
+                    trend = close >= hl2 ? 1 : -1;
+                }
+
+                if (i > 0 && trend !== prevTrend) {
+                    if (trend === 1) {
+                        markers.push({
+                            time: c.time,
+                            position: 'belowBar',
+                            color: '#22c55e',
+                            shape: 'arrowUp',
+                            text: 'BUY CALL'
+                        });
+                    } else {
+                        markers.push({
+                            time: c.time,
+                            position: 'aboveBar',
+                            color: '#ef4444',
+                            shape: 'arrowDown',
+                            text: 'BUY PUT'
+                        });
+                    }
+                }
+
+                const stVal = trend === 1 ? finalLower : finalUpper;
+                const roundedVal = parseFloat(stVal.toFixed(2));
+
+                if (trend === 1) {
+                    upSeriesData.push({ time: c.time, value: roundedVal });
+                    downSeriesData.push({ time: c.time });
+                } else {
+                    downSeriesData.push({ time: c.time, value: roundedVal });
+                    upSeriesData.push({ time: c.time });
+                }
+
+                prevFinalUpper = finalUpper;
+                prevFinalLower = finalLower;
+                prevTrend = trend;
+
+                if (i === n - 1) {
+                    latestST = {
+                        value: roundedVal,
+                        trend: trend,
+                        color: trend === 1 ? '#22c55e' : '#ef4444',
+                        label: trend === 1 ? 'CALL (CE)' : 'PUT (PE)'
+                    };
+                }
+            }
+
+            return {
+                upSeries: upSeriesData,
+                downSeries: downSeriesData,
+                markers: markers,
+                latest: latestST
+            };
+        }
+
         function initTradingViewChart() {
             loadAvailableSymbols();
             const chartContainer = document.getElementById('chart-container');
@@ -4040,6 +4198,8 @@
                 ema9Series = chart.addLineSeries({ color: '#38bdf8', lineWidth: 2, title: 'EMA 9' });
                 ema21Series = chart.addLineSeries({ color: '#f59e0b', lineWidth: 2, title: 'EMA 21' });
                 vwapSeries = chart.addLineSeries({ color: '#a855f7', lineWidth: 2, title: 'VWAP' });
+                supertrendUpSeries = chart.addLineSeries({ color: '#22c55e', lineWidth: 2, title: 'ST Bull (CE)' });
+                supertrendDownSeries = chart.addLineSeries({ color: '#ef4444', lineWidth: 2, title: 'ST Bear (PE)' });
                 strikeResSeries = chart.addLineSeries({ color: '#ef4444', lineWidth: 2, lineStyle: 0, title: 'Strike Res' });
                 strikeSupSeries = chart.addLineSeries({ color: '#22c55e', lineWidth: 2, lineStyle: 0, title: 'Strike Sup' });
             } else if (typeof chart.addSeries === 'function') {
@@ -4055,6 +4215,8 @@
                 ema9Series = chart.addSeries(LightweightCharts.LineSeries, { color: '#38bdf8', lineWidth: 2, title: 'EMA 9' });
                 ema21Series = chart.addSeries(LightweightCharts.LineSeries, { color: '#f59e0b', lineWidth: 2, title: 'EMA 21' });
                 vwapSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#a855f7', lineWidth: 2, title: 'VWAP' });
+                supertrendUpSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#22c55e', lineWidth: 2, title: 'ST Bull (CE)' });
+                supertrendDownSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#ef4444', lineWidth: 2, title: 'ST Bear (PE)' });
                 strikeResSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#ef4444', lineWidth: 2, lineStyle: 0, title: 'Strike Res' });
                 strikeSupSeries = chart.addSeries(LightweightCharts.LineSeries, { color: '#22c55e', lineWidth: 2, lineStyle: 0, title: 'Strike Sup' });
             }
@@ -4182,6 +4344,21 @@
             if (ema21Series) ema21Series.setData(activeIndicators.ema21 ? ema21Data : []);
             if (vwapSeries) vwapSeries.setData(activeIndicators.vwap ? vwapData : []);
 
+            const stData = calculateSuperTrend(currentCandleData, 10, 2.0);
+            if (supertrendUpSeries && supertrendDownSeries) {
+                if (activeIndicators.supertrend) {
+                    supertrendUpSeries.setData(stData.upSeries);
+                    supertrendDownSeries.setData(stData.downSeries);
+                    supertrendMarkers = stData.markers;
+                    if (candleSeries) candleSeries.setMarkers(supertrendMarkers);
+                } else {
+                    supertrendUpSeries.setData([]);
+                    supertrendDownSeries.setData([]);
+                    supertrendMarkers = [];
+                    if (candleSeries) candleSeries.setMarkers([]);
+                }
+            }
+
             updateLegendWithLatest();
             updateSpotPriceLine(currentSpot);
             if (activeChartStrikeSrEnabled) {
@@ -4238,6 +4415,21 @@
                             if (ema9Series) ema9Series.setData(activeIndicators.ema9 ? ema9Data : []);
                             if (ema21Series) ema21Series.setData(activeIndicators.ema21 ? ema21Data : []);
                             if (vwapSeries) vwapSeries.setData(activeIndicators.vwap ? vwapData : []);
+
+                            const stData = calculateSuperTrend(currentCandleData, 10, 2.0);
+                            if (supertrendUpSeries && supertrendDownSeries) {
+                                if (activeIndicators.supertrend) {
+                                    supertrendUpSeries.setData(stData.upSeries);
+                                    supertrendDownSeries.setData(stData.downSeries);
+                                    supertrendMarkers = stData.markers;
+                                    if (candleSeries) candleSeries.setMarkers(supertrendMarkers);
+                                } else {
+                                    supertrendUpSeries.setData([]);
+                                    supertrendDownSeries.setData([]);
+                                    supertrendMarkers = [];
+                                    if (candleSeries) candleSeries.setMarkers([]);
+                                }
+                            }
 
                             updateLegendWithLatest();
                             renderAocSrPriceLines();
@@ -4312,6 +4504,21 @@
                 const legE9 = document.getElementById('leg-ema9'); if (legE9) legE9.innerText = `EMA9: ${activeIndicators.ema9 ? lastEma9 : 'OFF'}`;
                 const legE21 = document.getElementById('leg-ema21'); if (legE21) legE21.innerText = `EMA21: ${activeIndicators.ema21 ? lastEma21 : 'OFF'}`;
                 const legVw = document.getElementById('leg-vwap'); if (legVw) legVw.innerText = `VWAP: ${activeIndicators.vwap ? lastVwap : 'OFF'}`;
+
+                const stData = calculateSuperTrend(currentCandleData, 10, 2.0);
+                const legSt = document.getElementById('leg-supertrend');
+                if (legSt) {
+                    if (!activeIndicators.supertrend) {
+                        legSt.innerText = 'ST: OFF';
+                        legSt.style.color = '#64748b';
+                    } else if (stData.latest) {
+                        legSt.innerText = `ST(10,2): ${stData.latest.value} (${stData.latest.label})`;
+                        legSt.style.color = stData.latest.color;
+                    } else {
+                        legSt.innerText = 'ST: —';
+                        legSt.style.color = '#64748b';
+                    }
+                }
             }
         }
 

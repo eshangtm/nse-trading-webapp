@@ -902,8 +902,8 @@
                 });
                 ema9Series = chartInstance.addLineSeries({ color: '#38bdf8', lineWidth: 1.5, title: '9EMA' });
                 ema21Series = chartInstance.addLineSeries({ color: '#f59e0b', lineWidth: 1.5, title: '21EMA' });
-                supertrendUpSeries = chartInstance.addLineSeries({ color: '#10b981', lineWidth: 2, title: 'ST Bull' });
-                supertrendDownSeries = chartInstance.addLineSeries({ color: '#ef4444', lineWidth: 2, title: 'ST Bear' });
+                supertrendUpSeries = chartInstance.addLineSeries({ color: '#10b981', lineWidth: 2, title: 'ST Bull (CE)' });
+                supertrendDownSeries = chartInstance.addLineSeries({ color: '#ef4444', lineWidth: 2, title: 'ST Bear (PE)' });
             } else if (typeof chartInstance.addSeries === 'function') {
                 candleSeries = chartInstance.addSeries(LightweightCharts.CandlestickSeries, {
                     upColor: '#10b981', downColor: '#ef4444',
@@ -918,8 +918,8 @@
                 });
                 ema9Series = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#38bdf8', lineWidth: 1.5, title: '9EMA' });
                 ema21Series = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#f59e0b', lineWidth: 1.5, title: '21EMA' });
-                supertrendUpSeries = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#10b981', lineWidth: 2, title: 'ST Bull' });
-                supertrendDownSeries = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#ef4444', lineWidth: 2, title: 'ST Bear' });
+                supertrendUpSeries = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#10b981', lineWidth: 2, title: 'ST Bull (CE)' });
+                supertrendDownSeries = chartInstance.addSeries(LightweightCharts.LineSeries, { color: '#ef4444', lineWidth: 2, title: 'ST Bear (PE)' });
             }
 
             window.addEventListener('resize', () => {
@@ -1030,7 +1030,7 @@
                             position: 'belowBar',
                             color: '#10b981',
                             shape: 'arrowUp',
-                            text: 'BUY'
+                            text: 'BUY CALL'
                         });
                     } else {
                         markers.push({
@@ -1038,7 +1038,7 @@
                             position: 'aboveBar',
                             color: '#ef4444',
                             shape: 'arrowDown',
-                            text: 'SELL'
+                            text: 'BUY PUT'
                         });
                     }
                 }
@@ -1063,7 +1063,7 @@
                         value: roundedVal,
                         trend: trend,
                         color: trend === 1 ? '#10b981' : '#ef4444',
-                        label: trend === 1 ? 'BUY' : 'SELL'
+                        label: trend === 1 ? 'CALL (CE)' : 'PUT (PE)'
                     };
                 }
             }
