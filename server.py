@@ -459,7 +459,10 @@ def get_signal_engine_status(request: Request, timestamp: str = None):
             ticks = df.to_dict("records")
             spot_price = float(ticks[0].get("spot_price", 0.0))
             engine.state["live_spot_price"] = spot_price
-            engine.state["last_tick_time"] = str(ticks[0].get("time_str", datetime.now().strftime("%H:%M:%S")))
+            from datetime import timezone, timedelta
+            ist = timezone(timedelta(hours=5, minutes=30))
+            now_ist_str = datetime.now(ist).strftime("%H:%M:%S")
+            engine.state["last_tick_time"] = str(ticks[0].get("time_str", now_ist_str))
             if is_open:
                 engine.process_market_tick(ticks, spot_price, current_timestamp=None)
     except Exception as e:

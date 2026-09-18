@@ -139,12 +139,23 @@ class LiveSignalEngine:
 
     def is_market_open(self, dt=None):
         """Check if market is currently open (Monday-Friday 09:15 to 15:30 IST)."""
+        from datetime import timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
         if dt is None:
-            from datetime import timezone, timedelta
-            ist = timezone(timedelta(hours=5, minutes=30))
             check_dt = datetime.now(ist).replace(tzinfo=None)
+        elif isinstance(dt, str):
+            try:
+                clean = dt.replace('T', ' ').split('.')[0]
+                check_dt = datetime.strptime(clean, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                check_dt = datetime.now(ist).replace(tzinfo=None)
         else:
-            check_dt = dt
+            # If naive datetime passed from UTC server (where hour is 3 to 10 UTC for 9:15 to 15:30 IST)
+            if hasattr(dt, 'hour') and dt.hour < 9:
+                check_dt = dt + timedelta(hours=5, minutes=30)
+            else:
+                check_dt = dt
+
         if check_dt.weekday() >= 5: # 5=Saturday, 6=Sunday
             return False, f"Market Closed (Weekend: {check_dt.strftime('%A')})"
         m_open = check_dt.replace(hour=9, minute=15, second=0, microsecond=0)
@@ -1050,8 +1061,7 @@ class LiveSignalEngine:
 
         # Market Open & Weekend Guard
         is_sim = bool(current_timestamp)
-        now_dt = datetime.now()
-        is_open, market_msg = self.is_market_open(now_dt if not is_sim else None)
+        is_open, market_msg = self.is_market_open(None if not is_sim else current_timestamp)
         self.state["is_market_open"] = is_open
         self.state["market_status"] = market_msg
 
