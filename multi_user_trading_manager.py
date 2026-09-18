@@ -17,6 +17,7 @@ BROKERAGE_PER_LOT = 70.0
 class MultiUserTradingManager:
     def __init__(self, db=user_db):
         self.db = db
+        self._last_signal_time: Dict[int, float] = {}
 
     def get_user_portfolio(self, user_id: int) -> Dict[str, Any]:
         """Fetch complete isolated portfolio, margins, and active positions for a user."""
@@ -195,8 +196,15 @@ class MultiUserTradingManager:
 
             pnl_pts = round(actual_exit - entry_price, 2)
             gross_pnl = round(pnl_pts * qty, 2)
+
+            # Realistic Friction: Rs. 70/lot brokerage + 1.0% option execution slippage
+            SLIPPAGE_PCT = 1.0
+            slip_entry_pts = max(0.05, round(round(entry_price * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
+            slip_exit_pts = max(0.05, round(round(actual_exit * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
+            slippage_pts = round(slip_entry_pts + slip_exit_pts, 2)
+            slippage_rupees = round(slippage_pts * qty, 2)
             brokerage = round(lots * BROKERAGE_PER_LOT, 2)
-            net_pnl = round(gross_pnl - brokerage, 2)
+            net_pnl = round(gross_pnl - brokerage - slippage_rupees, 2)
             pnl_pct = round((pnl_pts / entry_price * 100.0), 2) if entry_price > 0 else 0.0
 
             now_dt = datetime.now()
@@ -209,12 +217,12 @@ class MultiUserTradingManager:
                 INSERT INTO user_trades 
                 (trade_id, user_id, entry_timestamp, exit_timestamp, date, direction, option_type,
                  contract, strike, lots, quantity, entry_spot, entry_price, exit_spot, exit_price,
-                 exit_reason, pnl_pts, gross_pnl, brokerage, net_pnl, pnl_pct, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED')
+                 exit_reason, pnl_pts, gross_pnl, brokerage, slippage, net_pnl, pnl_pct, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CLOSED')
             """, (pos["trade_id"], user_id, pos["timestamp"], exit_ts, date_str, pos["direction"],
                   pos["option_type"], pos["contract"], pos["strike"], pos["lots"], pos["quantity"],
                   pos["entry_spot"], entry_price, s_spot, actual_exit, outcome, pnl_pts,
-                  gross_pnl, brokerage, net_pnl, pnl_pct))
+                  gross_pnl, brokerage, slippage_rupees, net_pnl, pnl_pct))
 
             # 2. Update user cash balance (Realized Net PnL added/deducted)
             cursor.execute("UPDATE users SET cash_balance = cash_balance + ? WHERE id = ?", (net_pnl, user_id))
@@ -365,21 +373,12 @@ class MultiUserTradingManager:
         auto_trades_placed = []
         alerts_created = []
 
+        now_time = time.time()
         all_users = self.db.get_all_users()
         for u in all_users:
             if u["status"] != "active":
                 continue
             user_id = u["id"]
-
-            # Prevent duplicate entry if user already has an open position in this contract
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT COUNT(*) FROM user_positions 
-                    WHERE user_id = ? AND contract = ? AND status = 'OPEN'
-                """, (user_id, contract))
-                if cursor.fetchone()[0] > 0:
-                    continue
 
             user_cfg = self.db.get_user_settings(user_id)
             user_pref_dir = user_cfg.get("trade_direction", "BOTH").upper()
@@ -387,6 +386,29 @@ class MultiUserTradingManager:
             # Filter direction: BOTH, CALL, or PUT
             if user_pref_dir != "BOTH" and user_pref_dir != signal_dir:
                 continue
+
+            # 1. Strict Signal Throttle: At least 45 seconds between signals/trades per user
+            last_time = self._last_signal_time.get(user_id, 0)
+            if now_time - last_time < 45.0:
+                continue
+
+            # 2. Check Maximum Active Open Positions Limit (default 1)
+            max_open = int(user_cfg.get("max_open_positions", 1))
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM user_positions WHERE user_id = ? AND status = 'OPEN'", (user_id,))
+                cur_open = cursor.fetchone()[0]
+                if cur_open >= max_open:
+                    continue
+
+                # 3. Prevent duplicate entry if user already has an open position in this strike & option_type
+                opt_type = "CE" if signal_dir == "CALL" else "PE"
+                cursor.execute("""
+                    SELECT COUNT(*) FROM user_positions 
+                    WHERE user_id = ? AND strike = ? AND option_type = ? AND status = 'OPEN'
+                """, (user_id, strike, opt_type))
+                if cursor.fetchone()[0] > 0:
+                    continue
 
             lots = int(user_cfg.get("lots", 1))
             target_pts = float(user_cfg.get("target_pts", 35.0))
@@ -408,9 +430,13 @@ class MultiUserTradingManager:
                     order_type="ALGO_AUTO"
                 )
                 if res.get("status") == "ok":
+                    self._last_signal_time[user_id] = now_time
                     auto_trades_placed.append({"user_id": user_id, "trade_id": res.get("trade_id")})
             else:
-                # ── Semi-Auto / Notification Mode: Push alert with Execute/Cancel ──
+                # ── Semi-Auto / Notification Mode: Push alert only if notifications are enabled ──
+                if user_cfg.get("notifications_enabled", 1) == 0:
+                    continue
+
                 target_p = round(suggested_price + target_pts, 2)
                 sl_p = max(1.0, round(suggested_price - sl_pts, 2))
                 alert_id = self.db.create_signal_alert(user_id, {
@@ -426,7 +452,9 @@ class MultiUserTradingManager:
                     "sl_price": sl_p,
                     "lots": lots
                 })
-                alerts_created.append({"user_id": user_id, "alert_id": alert_id})
+                if alert_id:
+                    self._last_signal_time[user_id] = now_time
+                    alerts_created.append({"user_id": user_id, "alert_id": alert_id})
 
         return {
             "status": "ok",

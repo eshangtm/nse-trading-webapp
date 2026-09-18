@@ -169,7 +169,51 @@ class UserDatabase:
                     FOREIGN KEY (user_id) REFERENCES users (id)
                 );
             """)
+
+            # 7. System & API Configuration table (Persists Fyers Token across reboots)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS system_config (
+                    config_key TEXT PRIMARY KEY,
+                    config_value TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+
+            # Run seamless migrations for newly added columns
+            for col, col_def in [("notifications_enabled", "INTEGER NOT NULL DEFAULT 1"), ("max_open_positions", "INTEGER NOT NULL DEFAULT 1")]:
+                try:
+                    conn.execute(f"ALTER TABLE user_settings ADD COLUMN {col} {col_def}")
+                except Exception:
+                    pass
+            for col, col_def in [("slippage", "REAL NOT NULL DEFAULT 0.0")]:
+                try:
+                    conn.execute(f"ALTER TABLE user_trades ADD COLUMN {col} {col_def}")
+                except Exception:
+                    pass
             conn.commit()
+
+    def set_config(self, key: str, value: str):
+        """Save a key-value setting in SQLite (e.g. fyers_token)."""
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT INTO system_config (config_key, config_value, updated_at)
+                VALUES (?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(config_key) DO UPDATE SET
+                    config_value = excluded.config_value,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (key, value))
+            conn.commit()
+
+    def get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Retrieve a key-value setting from SQLite."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT config_value FROM system_config WHERE config_key = ?", (key,))
+                row = cursor.fetchone()
+                return row["config_value"] if row else default
+        except Exception:
+            return default
 
     def _seed_default_accounts(self):
         """Seed default admin and demo user accounts if database is empty."""
@@ -281,13 +325,10 @@ class UserDatabase:
             cursor.execute("""
                 SELECT u.id, u.username, u.plain_password, u.full_name, u.email, u.role, u.status, 
                        u.initial_capital, u.cash_balance, u.created_at,
-                       COUNT(DISTINCT p.id) as open_positions_count,
-                       COUNT(DISTINCT t.id) as total_trades_count,
-                       COALESCE(SUM(t.net_pnl), 0.0) as realized_pnl
+                       (SELECT COUNT(*) FROM user_positions p WHERE p.user_id = u.id AND p.status = 'OPEN') as open_positions_count,
+                       (SELECT COUNT(*) FROM user_trades t WHERE t.user_id = u.id) as total_trades_count,
+                       (SELECT COALESCE(SUM(t.net_pnl), 0.0) FROM user_trades t WHERE t.user_id = u.id) as realized_pnl
                 FROM users u
-                LEFT JOIN user_positions p ON u.id = p.user_id AND p.status = 'OPEN'
-                LEFT JOIN user_trades t ON u.id = t.user_id
-                GROUP BY u.id
                 ORDER BY u.id ASC
             """)
             return [dict(r) for r in cursor.fetchall()]
@@ -406,11 +447,16 @@ class UserDatabase:
             cursor.execute("SELECT * FROM user_settings WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
             if row:
-                return dict(row)
+                d = dict(row)
+                if "notifications_enabled" not in d or d["notifications_enabled"] is None:
+                    d["notifications_enabled"] = 1
+                if "max_open_positions" not in d or d["max_open_positions"] is None:
+                    d["max_open_positions"] = 1
+                return d
             # Default settings if none saved yet
             cursor.execute("""
-                INSERT OR IGNORE INTO user_settings (user_id, auto_trade_enabled, lots, trade_direction, sl_pts, target_pts)
-                VALUES (?, 0, 1, 'BOTH', 25.0, 35.0)
+                INSERT OR IGNORE INTO user_settings (user_id, auto_trade_enabled, lots, trade_direction, sl_pts, target_pts, notifications_enabled, max_open_positions)
+                VALUES (?, 0, 1, 'BOTH', 25.0, 35.0, 1, 1)
             """, (user_id,))
             conn.commit()
             return {
@@ -419,30 +465,68 @@ class UserDatabase:
                 "lots": 1,
                 "trade_direction": "BOTH",
                 "sl_pts": 25.0,
-                "target_pts": 35.0
+                "target_pts": 35.0,
+                "notifications_enabled": 1,
+                "max_open_positions": 1
             }
 
-    def save_user_settings(self, user_id: int, auto_trade_enabled: int, lots: int, trade_direction: str, sl_pts: float, target_pts: float) -> Dict[str, Any]:
+    def save_user_settings(self, user_id: int, auto_trade_enabled: int, lots: int, trade_direction: str, 
+                           sl_pts: float, target_pts: float, notifications_enabled: int = 1, 
+                           max_open_positions: int = 1) -> Dict[str, Any]:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO user_settings (user_id, auto_trade_enabled, lots, trade_direction, sl_pts, target_pts, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                INSERT INTO user_settings (user_id, auto_trade_enabled, lots, trade_direction, sl_pts, target_pts, notifications_enabled, max_open_positions, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id) DO UPDATE SET
                     auto_trade_enabled=excluded.auto_trade_enabled,
                     lots=excluded.lots,
                     trade_direction=excluded.trade_direction,
                     sl_pts=excluded.sl_pts,
                     target_pts=excluded.target_pts,
+                    notifications_enabled=excluded.notifications_enabled,
+                    max_open_positions=excluded.max_open_positions,
                     updated_at=CURRENT_TIMESTAMP
-            """, (user_id, int(auto_trade_enabled), max(1, int(lots)), str(trade_direction).upper(), float(sl_pts), float(target_pts)))
+            """, (user_id, int(auto_trade_enabled), max(1, int(lots)), str(trade_direction).upper(), 
+                  float(sl_pts), float(target_pts), int(notifications_enabled), max(1, int(max_open_positions))))
             conn.commit()
         return {"status": "ok", "message": "Settings saved successfully"}
 
-    # ── User Signal Notifications & Alerts ───────────────────────────
-    def create_signal_alert(self, user_id: int, alert_data: Dict[str, Any]) -> int:
+    def update_user_notifications(self, user_id: int, enabled: int) -> bool:
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            cursor.execute("UPDATE user_settings SET notifications_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?", (int(enabled), user_id))
+            if cursor.rowcount == 0:
+                self.get_user_settings(user_id)
+                cursor.execute("UPDATE user_settings SET notifications_enabled = ? WHERE user_id = ?", (int(enabled), user_id))
+            conn.commit()
+            return True
+
+    def dismiss_all_alerts(self, user_id: int) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE user_signal_alerts SET status = 'DISMISSED' WHERE user_id = ? AND status = 'PENDING'", (user_id,))
+            conn.commit()
+            return True
+
+    # ── User Signal Notifications & Alerts ───────────────────────────
+    def create_signal_alert(self, user_id: int, alert_data: Dict[str, Any]) -> int:
+        # Check if user has notifications disabled
+        cfg = self.get_user_settings(user_id)
+        if cfg.get("notifications_enabled", 1) == 0:
+            return 0
+
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # If user already has a PENDING alert, do not create duplicate alert spam
+            cursor.execute("SELECT id FROM user_signal_alerts WHERE user_id = ? AND status = 'PENDING' ORDER BY id DESC LIMIT 1", (user_id,))
+            existing = cursor.fetchone()
+            if existing:
+                # Clean up any extra pending alerts
+                cursor.execute("UPDATE user_signal_alerts SET status = 'DISMISSED' WHERE user_id = ? AND status = 'PENDING' AND id != ?", (user_id, existing[0]))
+                conn.commit()
+                return existing[0]
+
             cursor.execute("""
                 INSERT INTO user_signal_alerts (
                     user_id, signal_id, timestamp, direction, option_type, 

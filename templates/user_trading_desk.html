@@ -320,6 +320,9 @@
                 <span class="acc-label">Net Equity</span>
                 <span id="netEquity" class="acc-val">₹0.00</span>
             </div>
+            <button id="btnToggleNotifications" class="btn-action" onclick="toggleNotifications()" style="background: rgba(16, 185, 129, 0.15); border: 1px solid #10b981; color: #10b981; font-weight: 700; cursor: pointer;">
+                🔔 Alerts: ON
+            </button>
             <a href="/terminal" class="btn-action" target="_blank">📊 Option Chain (AOC)</a>
             <a href="/signals" class="btn-action" target="_blank">🎯 Signals Monitor</a>
             <a href="/api/auth/logout" class="btn-action btn-logout">Logout</a>
@@ -380,6 +383,24 @@
                     <div class="ticket-field" style="margin-bottom: 0;">
                         <label>Stop Loss (-Pts)</label>
                         <input type="number" id="autoSlInput" value="25.0" step="1.0">
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px;">
+                    <div class="ticket-field" style="margin-bottom: 0;">
+                        <label>Signal Popups</label>
+                        <select id="autoNotificationsSelect" onchange="onNotificationSelectChange(this.value)">
+                            <option value="1">🔔 ON (Show Popups)</option>
+                            <option value="0">🔕 OFF (Muted)</option>
+                        </select>
+                    </div>
+                    <div class="ticket-field" style="margin-bottom: 0;">
+                        <label>Max Open Positions</label>
+                        <select id="autoMaxOpenPosSelect">
+                            <option value="1">1 Pos (Strict Single)</option>
+                            <option value="2">2 Positions</option>
+                            <option value="3">3 Positions</option>
+                        </select>
                     </div>
                 </div>
 
@@ -519,12 +540,13 @@
                         <th>Exit Price</th>
                         <th>Points P&L</th>
                         <th>Brokerage</th>
+                        <th>Slippage (1%)</th>
                         <th>Net Realized P&L</th>
                         <th>Exit Reason</th>
                     </tr>
                 </thead>
                 <tbody id="closedTradesBody">
-                    <tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No closed trades found.</td></tr>
+                    <tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No closed trades found.</td></tr>
                 </tbody>
             </table>
         </div>
@@ -570,12 +592,15 @@
             </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <button id="modalBtnExecute" style="background: linear-gradient(135deg, #059669, #10b981); color: #060911; font-weight: 800; border: none; padding: 12px; border-radius: 10px; font-size: 14px; cursor: pointer;">
                 ✓ EXECUTE TRADE
             </button>
             <button id="modalBtnCancel" style="background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; color: #f87171; font-weight: 800; padding: 12px; border-radius: 10px; font-size: 14px; cursor: pointer;">
                 ✕ CANCEL / DISMISS
+            </button>
+            <button id="modalBtnMute" onclick="muteAlertsFromModal()" style="grid-column: span 2; background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #f59e0b; font-weight: 800; padding: 9px; border-radius: 8px; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                🔕 Mute / Turn OFF Signal Popups
             </button>
         </div>
     </div>
@@ -763,7 +788,7 @@
             const closed = data.recent_trades || [];
             const closedBody = document.getElementById('closedTradesBody');
             if (closed.length === 0) {
-                closedBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted);">No closed trades today.</td></tr>';
+                closedBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted);">No closed trades today.</td></tr>';
             } else {
                 closedBody.innerHTML = closed.map(t => `
                     <tr>
@@ -774,6 +799,7 @@
                         <td>₹${t.exit_price.toFixed(2)}</td>
                         <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)}</td>
                         <td style="color: var(--text-muted);">-₹${t.brokerage.toFixed(2)}</td>
+                        <td style="color: #f59e0b;">-₹${(t.slippage || 0).toFixed(2)}</td>
                         <td style="font-weight: 800; color: ${t.net_pnl >= 0 ? '#34d399' : '#f87171'}">
                             ${t.net_pnl >= 0 ? '+₹' : '₹'}${t.net_pnl.toFixed(2)}
                         </td>
@@ -785,7 +811,15 @@
     }
 
     // ── Auto-Trade Settings & Mode Control ─────────────────────────
-    let userSettings = { auto_trade_enabled: 0, lots: 1, trade_direction: 'BOTH', sl_pts: 25.0, target_pts: 35.0 };
+    let userSettings = { 
+        auto_trade_enabled: 0, 
+        lots: 1, 
+        trade_direction: 'BOTH', 
+        sl_pts: 25.0, 
+        target_pts: 35.0,
+        notifications_enabled: 1,
+        max_open_positions: 1
+    };
 
     async function loadUserSettings() {
         try {
@@ -797,9 +831,85 @@
                 document.getElementById('autoDirectionSelect').value = userSettings.trade_direction || 'BOTH';
                 document.getElementById('autoTargetInput').value = userSettings.target_pts || 35.0;
                 document.getElementById('autoSlInput').value = userSettings.sl_pts || 25.0;
+                
+                const notifSel = document.getElementById('autoNotificationsSelect');
+                if (notifSel) notifSel.value = userSettings.notifications_enabled !== undefined ? String(userSettings.notifications_enabled) : "1";
+
+                const maxPosSel = document.getElementById('autoMaxOpenPosSelect');
+                if (maxPosSel) maxPosSel.value = userSettings.max_open_positions !== undefined ? String(userSettings.max_open_positions) : "1";
+
                 updateAutoBadge();
+                updateNotificationButtonBadge();
             }
         } catch (e) { console.error('Error loading settings:', e); }
+    }
+
+    function updateNotificationButtonBadge() {
+        const btn = document.getElementById('btnToggleNotifications');
+        if (!btn) return;
+        const isEnabled = userSettings.notifications_enabled === 1 || userSettings.notifications_enabled === undefined;
+        if (isEnabled) {
+            btn.innerHTML = '🔔 Alerts: ON';
+            btn.style.background = 'rgba(16, 185, 129, 0.15)';
+            btn.style.borderColor = '#10b981';
+            btn.style.color = '#10b981';
+        } else {
+            btn.innerHTML = '🔕 Alerts: OFF (Muted)';
+            btn.style.background = 'rgba(239, 68, 68, 0.15)';
+            btn.style.borderColor = '#ef4444';
+            btn.style.color = '#f87171';
+        }
+    }
+
+    async function toggleNotifications() {
+        const nextState = (userSettings.notifications_enabled === 1) ? 0 : 1;
+        userSettings.notifications_enabled = nextState;
+        updateNotificationButtonBadge();
+        const notifSel = document.getElementById('autoNotificationsSelect');
+        if (notifSel) notifSel.value = String(nextState);
+
+        if (nextState === 0) {
+            const modal = document.getElementById('signalModal');
+            if (modal) modal.style.display = 'none';
+            currentAlert = null;
+        }
+
+        try {
+            await fetch('/api/user/settings/toggle_notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: nextState })
+            });
+        } catch (e) { console.error(e); }
+    }
+
+    function onNotificationSelectChange(val) {
+        userSettings.notifications_enabled = parseInt(val) || 0;
+        updateNotificationButtonBadge();
+        if (userSettings.notifications_enabled === 0) {
+            const modal = document.getElementById('signalModal');
+            if (modal) modal.style.display = 'none';
+            currentAlert = null;
+        }
+    }
+
+    async function muteAlertsFromModal() {
+        const modal = document.getElementById('signalModal');
+        if (modal) modal.style.display = 'none';
+        currentAlert = null;
+        userSettings.notifications_enabled = 0;
+        updateNotificationButtonBadge();
+        const notifSel = document.getElementById('autoNotificationsSelect');
+        if (notifSel) notifSel.value = "0";
+
+        try {
+            await fetch('/api/user/settings/toggle_notifications', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: 0 })
+            });
+            await fetch('/api/user/alerts/dismiss_all', { method: 'POST' });
+        } catch (e) { console.error(e); }
     }
 
     function updateAutoBadge() {
@@ -823,12 +933,17 @@
     }
 
     async function saveUserSettings() {
+        const notifSel = document.getElementById('autoNotificationsSelect');
+        const maxPosSel = document.getElementById('autoMaxOpenPosSelect');
+
         const payload = {
             auto_trade_enabled: userSettings.auto_trade_enabled,
             lots: parseInt(document.getElementById('autoLotsInput').value) || 1,
             trade_direction: document.getElementById('autoDirectionSelect').value,
             target_pts: parseFloat(document.getElementById('autoTargetInput').value) || 35.0,
-            sl_pts: parseFloat(document.getElementById('autoSlInput').value) || 25.0
+            sl_pts: parseFloat(document.getElementById('autoSlInput').value) || 25.0,
+            notifications_enabled: notifSel ? parseInt(notifSel.value) : (userSettings.notifications_enabled !== undefined ? userSettings.notifications_enabled : 1),
+            max_open_positions: maxPosSel ? parseInt(maxPosSel.value) : 1
         };
 
         try {
@@ -841,7 +956,8 @@
             if (data.status === 'ok') {
                 userSettings = payload;
                 updateAutoBadge();
-                alert('Auto-Trading Settings Saved Successfully!');
+                updateNotificationButtonBadge();
+                alert('Auto-Trading & Risk Settings Saved Successfully!');
             }
         } catch (e) { alert('Error saving settings: ' + e); }
     }
@@ -850,6 +966,7 @@
     let currentAlert = null;
 
     function playNotificationSound() {
+        if (userSettings.notifications_enabled === 0) return;
         try {
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             const osc = audioCtx.createOscillator();
@@ -866,6 +983,15 @@
     }
 
     async function pollPendingAlerts() {
+        // If user muted notifications, exit immediately
+        if (userSettings.notifications_enabled === 0) {
+            if (currentAlert) {
+                document.getElementById('signalModal').style.display = 'none';
+                currentAlert = null;
+            }
+            return;
+        }
+
         try {
             const res = await fetch('/api/user/alerts/pending');
             const data = await res.json();
@@ -885,6 +1011,7 @@
     }
 
     function showSignalModal(a) {
+        if (userSettings.notifications_enabled === 0) return;
         playNotificationSound();
         const modal = document.getElementById('signalModal');
         modal.style.display = 'flex';
@@ -925,6 +1052,7 @@
             modal.style.display = 'none';
             try {
                 await fetch(`/api/user/alerts/${a.id}/cancel`, { method: 'POST' });
+                await fetch('/api/user/alerts/dismiss_all', { method: 'POST' });
                 currentAlert = null;
             } catch (err) {}
         };
@@ -968,7 +1096,7 @@
     function renderTradesTable(trades) {
         const closedBody = document.getElementById('closedTradesBody');
         if (!trades || trades.length === 0) {
-            closedBody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 14px;">No closed trades found for this filter.</td></tr>';
+            closedBody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 14px;">No closed trades found for this filter.</td></tr>';
             return;
         }
         closedBody.innerHTML = trades.map(t => `
@@ -978,12 +1106,13 @@
                 <td>${t.lots} (${t.quantity})</td>
                 <td>₹${t.entry_price.toFixed(2)}</td>
                 <td>₹${t.exit_price.toFixed(2)}</td>
-                <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)}</td>
-                <td style="color: var(--text-muted);">-₹${t.brokerage.toFixed(2)}</td>
+                <td style="font-weight: 700; color: ${t.pnl_pts >= 0 ? '#34d399' : '#f87171'}">${t.pnl_pts >= 0 ? '+' : ''}${t.pnl_pts.toFixed(2)} pts</td>
+                <td style="color: var(--text-muted);">-₹${(t.brokerage || 0).toFixed(2)}</td>
+                <td style="color: #f59e0b;">-₹${(t.slippage || 0).toFixed(2)}</td>
                 <td style="font-weight: 800; color: ${t.net_pnl >= 0 ? '#34d399' : '#f87171'}">
                     ${t.net_pnl >= 0 ? '+₹' : '₹'}${t.net_pnl.toFixed(2)}
                 </td>
-                <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${t.exit_reason}</span></td>
+                <td><span style="font-size: 11px; background: #1e293b; padding: 2px 6px; border-radius: 4px;">${t.exit_reason || 'CLOSED'}</span></td>
             </tr>
         `).join('');
     }

@@ -505,10 +505,18 @@
         <div class="header">
             <h1>⚡ Institutional Live Signal Engine & Virtual Wallet</h1>
             <p>95.1% Win Rate Selective Master Setup (Max 1-2 Trades/Day) | Strict 7.5 SL | Dedicated Isolated Wallet</p>
+            <div style="margin-top: 8px; display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap;">
+                <div id="user-badge" style="display: inline-flex; align-items: center; gap: 8px; background: rgba(56, 189, 248, 0.12); border: 1px solid rgba(56, 189, 248, 0.35); padding: 5px 14px; border-radius: 8px; font-size: 12.5px; color: #38bdf8; font-weight: 700;">
+                    <span>👤 Active User:</span>
+                    <span id="active-user-name" style="color: #f8fafc;">Default Trader</span>
+                    <span style="font-size: 10.5px; background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 2px 6px; border-radius: 4px; font-weight: 800;">Isolated Engine & Wallet</span>
+                </div>
+            </div>
             <div class="nav-links">
                 <a href="/" class="nav-link-btn">📊 Open Main NIFTY50 Web Terminal</a>
-                <a href="/backtest_reports/weekly_40k_profit_report.html" target="_blank" class="nav-link-btn">📑 Weekly 40k Master Report</a>
-                <a href="/backtest_reports/live_signal_emulation_report.html" target="_blank" class="nav-link-btn">🔬 Emulation Engine Audit</a>
+                <a href="/trade" class="nav-link-btn">💹 Trading Desk</a>
+                <a href="/admin" class="nav-link-btn">🛡️ Admin Portal</a>
+                <a href="/backtest_reports/weekly_40k_profit_report.html" target="_blank" class="nav-link-btn">📑 Weekly 40k Report</a>
             </div>
         </div>
 
@@ -756,14 +764,26 @@
              DETAILED TRADES LEDGER & SELECTION / DELETION SECTION
         ══════════════════════════════════════════════════════════════ -->
         <div class="ledger-header-bar" style="flex-wrap: wrap; gap: 12px;">
-            <div class="ledger-title" style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+            <div class="ledger-title" style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
                 <span>📋 Live Trade Ledger</span>
-                <div style="display: inline-flex; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px; gap: 4px;">
-                    <button id="tab-btn-inst" onclick="setLedgerTab('institutional')" style="padding: 6px 14px; border: none; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; background: #38bdf8; color: #090d16; transition: 0.2s;">Institutional (1-2/Day)</button>
-                    <button id="tab-btn-rev" onclick="setLedgerTab('reversal')" style="padding: 6px 14px; border: none; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; background: transparent; color: #94a3b8; transition: 0.2s;">⚡ S/R Reversal Trades</button>
+                <!-- Clean 3-System Core Navigation -->
+                <div style="display: inline-flex; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 3px; gap: 4px; align-items: center;">
+                    <button id="tab-btn-inst" onclick="setLedgerTab('institutional')" style="padding: 6px 14px; border: none; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; background: #38bdf8; color: #090d16; transition: 0.2s;" title="Selective Master Setup (95.1% Win Rate)">🎯 Selective Master (95.1%)</button>
+                    <button id="tab-btn-rev" onclick="setLedgerTab('reversal')" style="padding: 6px 14px; border: none; border-radius: 6px; font-weight: 700; font-size: 11.5px; cursor: pointer; background: transparent; color: #94a3b8; transition: 0.2s;" title="21-Candle Reversal Exhaustion Setup (70.7% Win Rate)">⚡ 21-Candle Reversal (70.7%)</button>
+                    <a href="/ai_forecast" target="_blank" style="padding: 6px 14px; border-radius: 6px; font-weight: 700; font-size: 11.5px; text-decoration: none; background: linear-gradient(135deg, #8b5cf6, #06b6d4); color: #fff; display: inline-flex; align-items: center; gap: 4px;" title="AI Long-Trade Forecaster: 15m-1h Holding, +40 to +100 Pts, Telegram Charts">🏆 AI Forecaster (84.6%) ↗</a>
                 </div>
                 <span style="font-size: 12px; color: var(--text-dim); font-weight: normal;" id="trades-count-label">(0 Trades Logged)</span>
             </div>
+
+            <!-- Manual Daily Profit Target Selector (2 to 5 Trades) -->
+            <div style="display: flex; align-items: center; gap: 6px; background: rgba(15, 23, 42, 0.8); border: 1px solid #334155; border-radius: 8px; padding: 4px 10px;">
+                <span style="font-size: 11.5px; color: #94a3b8; font-weight: 700;">🎯 Daily Profit Target:</span>
+                <button type="button" class="btn-daily-tgt" onclick="setDailyTargetLimit(2)" id="btn-tgt-2" style="padding: 3px 9px; border-radius: 4px; border: 1px solid #475569; background: #1e293b; color: #38bdf8; font-weight: 700; font-size: 11px; cursor: pointer;">2</button>
+                <button type="button" class="btn-daily-tgt" onclick="setDailyTargetLimit(3)" id="btn-tgt-3" style="padding: 3px 9px; border-radius: 4px; border: 1px solid #475569; background: #1e293b; color: #cbd5e1; font-weight: 700; font-size: 11px; cursor: pointer;">3</button>
+                <button type="button" class="btn-daily-tgt" onclick="setDailyTargetLimit(4)" id="btn-tgt-4" style="padding: 3px 9px; border-radius: 4px; border: 1px solid #475569; background: #1e293b; color: #cbd5e1; font-weight: 700; font-size: 11px; cursor: pointer;">4</button>
+                <button type="button" class="btn-daily-tgt" onclick="setDailyTargetLimit(5)" id="btn-tgt-5" style="padding: 3px 9px; border-radius: 4px; border: 1px solid #475569; background: #1e293b; color: #cbd5e1; font-weight: 700; font-size: 11px; cursor: pointer;">5</button>
+            </div>
+
             <div class="bulk-actions-group">
                 <span id="selected-count-label" style="font-size: 12px; color: #38bdf8; font-weight: 700;">0 Selected</span>
                 <button class="btn-delete-selected" id="btn-bulk-delete" onclick="deleteSelectedTrades()" style="display: none;">
@@ -777,8 +797,8 @@
                 <button class="btn-export-csv" onclick="exportTradesCSV()" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; border: 1px solid #38bdf8; padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;" title="Download day-wise or complete trade dossier in CSV">
                     📥 Export CSV
                 </button>
-                <button class="btn-reset-wallet" id="btn-unlock-limit" onclick="resetDailyLimitConfirm()" style="background: #334155; color: #f8fafc; border: 1px solid #475569; margin-right: 4px;" title="Reset daily 5-trade lock back to 0/5 without clearing ledger">
-                    🔓 Unlock Daily Limit (0/5)
+                <button class="btn-reset-wallet" id="btn-unlock-limit" onclick="resetDailyLimitConfirm()" style="background: #334155; color: #f8fafc; border: 1px solid #475569; margin-right: 4px;" title="Reset daily profit target lock back to 0 without clearing ledger">
+                    🔓 Target Limit (0/2 Wins)
                 </button>
                 <button class="btn-reset-wallet" onclick="resetWalletConfirm()">
                     🔄 Reset Wallet (Fresh ₹1 Lakh)
@@ -1456,12 +1476,26 @@
                 }
                 document.getElementById('w-win-rate').innerText = `${w.win_rate || 0}%`;
                 document.getElementById('w-wins-losses').innerText = `${w.win_trades || 0} Wins / ${w.loss_trades || 0} Losses (${w.total_trades || 0} Total)`;
-                const maxDaily = w.max_daily_trades || 5;
+                const maxDaily = w.max_daily_trades || 2;
                 document.getElementById('w-daily-count').innerText = `${w.daily_trades_taken || 0} / ${maxDaily}`;
                 const unlockBtn = document.getElementById('btn-unlock-limit');
                 if (unlockBtn) {
-                    unlockBtn.innerText = `🔓 Unlock Daily Limit (${w.daily_trades_taken || 0}/${maxDaily})`;
+                    unlockBtn.innerText = `🔓 Unlock Daily Limit (${w.daily_trades_taken || 0}/${maxDaily} Wins)`;
                 }
+                [2, 3, 4, 5].forEach(n => {
+                    const btn = document.getElementById(`btn-tgt-${n}`);
+                    if (btn) {
+                        if (n === maxDaily) {
+                            btn.style.background = '#0284c7';
+                            btn.style.color = '#fff';
+                            btn.style.borderColor = '#38bdf8';
+                        } else {
+                            btn.style.background = '#1e293b';
+                            btn.style.color = '#cbd5e1';
+                            btn.style.borderColor = '#475569';
+                        }
+                    }
+                });
             } catch (e) {
                 console.error("Wallet error", e);
             }
@@ -1471,6 +1505,12 @@
             try {
                 const res = await fetch('/api/signals/status');
                 const state = await res.json();
+                
+                // Update User Identity Badge
+                const userEl = document.getElementById('active-user-name');
+                if (userEl && (state.current_user || state.current_user_name)) {
+                    userEl.innerText = `${state.current_user_name || state.current_user} (${state.current_user || 'trader'})`;
+                }
                 
                 updateMasterSwitchUI(state.master_switch, state.is_market_open, state.market_status);
                 updateAutoSwitchUI(state.auto_trading);
@@ -1542,6 +1582,33 @@
                 if (btnInst) { btnInst.style.background = 'transparent'; btnInst.style.color = '#94a3b8'; }
             }
             await fetchTrades();
+        }
+
+        async function setDailyTargetLimit(val) {
+            try {
+                await fetch('/api/signals/set_daily_limit', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ max_daily_trades: parseInt(val) })
+                });
+                [2, 3, 4, 5].forEach(n => {
+                    const btn = document.getElementById(`btn-tgt-${n}`);
+                    if (btn) {
+                        if (n === parseInt(val)) {
+                            btn.style.background = '#0284c7';
+                            btn.style.color = '#fff';
+                            btn.style.borderColor = '#38bdf8';
+                        } else {
+                            btn.style.background = '#1e293b';
+                            btn.style.color = '#cbd5e1';
+                            btn.style.borderColor = '#475569';
+                        }
+                    }
+                });
+                refreshAll();
+            } catch (e) {
+                console.error("Set daily limit error:", e);
+            }
         }
 
         async function resetDailyLimitConfirm() {
@@ -1675,18 +1742,45 @@
                     const isPe = item.action === 'BUY_PE' || item.direction === 'PUT';
                     const isAuto = item.status === 'AUTO_EXECUTED' || item.execution_mode === 'ALGORITHMIC_AUTO';
                     
-                    const pnl = item.pnl_rupees || 0.0;
-                    const pnlPts = item.pnl_points || 0.0;
-                    const pnlColor = pnl > 0 ? '#10b981' : (pnl < 0 ? '#ef4444' : '#94a3b8');
+                    const isBe = item.is_breakeven || item.status === 'BREAKEVEN' || item.outcome === 'BREAKEVEN';
+                    const pnl = Number(item.pnl_rupees !== undefined ? item.pnl_rupees : 0.0);
+                    const pnlPts = Number(item.pnl_points !== undefined ? item.pnl_points : 0.0);
+                    
+                    let pnlColor = pnl > 0 ? '#10b981' : (pnl < 0 ? '#ef4444' : '#94a3b8');
+                    if (isBe) {
+                        pnlColor = '#f59e0b'; // distinct amber/orange for friction loss on breakeven
+                    }
                     const pnlSign = pnlPts >= 0 ? '+' : '';
                     const pnlPct = item.pnl_pct !== undefined ? Number(item.pnl_pct).toFixed(2) : (item.entry_ltp ? ((pnlPts / item.entry_ltp) * 100).toFixed(2) : '0.00');
-                    const pnlText = pnl !== 0.0 ? `${pnl > 0 ? '+' : ''}₹${pnl.toFixed(2)}` : '-';
+                    let pnlText = pnl !== 0.0 ? `${pnl > 0 ? '+' : ''}₹${pnl.toFixed(2)}` : '₹0.00';
+                    if (isBe && item.total_friction) {
+                        pnlText = `-₹${Math.abs(item.total_friction).toFixed(2)}`;
+                    } else if (isBe && pnl < 0) {
+                        pnlText = `-₹${Math.abs(pnl).toFixed(2)}`;
+                    }
 
                     const entryTimeStr = item.entry_time || item.timestamp || item.executed_at || '-';
                     const exitTimeStr = item.exit_time ? (item.exit_time.includes(' ') ? item.exit_time.split(' ')[1] : item.exit_time) : '-';
 
+                    let statusBadge = `<span class="cell-sub" style="font-weight: 700; color: ${item.status?.includes('TARGET') ? '#10b981' : (item.status?.includes('SL') ? '#ef4444' : '#38bdf8')};">${item.status || 'CLOSED'}</span>`;
+                    if (isBe) {
+                        statusBadge = `<span class="cell-sub" style="font-weight: 800; color: #f59e0b; background: rgba(245, 158, 11, 0.15); padding: 1px 6px; border-radius: 4px; display: inline-block;">🛡️ BREAKEVEN</span>`;
+                    }
+
+                    let pnlSub = `<span class="cell-sub" style="color: ${pnlColor}; font-weight: 700;">${pnlSign}${pnlPts.toFixed(1)} pts (${pnlSign}${pnlPct}%)</span>`;
+                    if (isBe) {
+                        pnlSub = `<span class="cell-sub" style="color: #f59e0b; font-weight: 700;">🛡️ Friction Only (Limit Free)</span>`;
+                    }
+
+                    const tradeLots = item.lots || 2;
+                    const tradeQty = item.qty || (tradeLots * 65);
+                    const grossPts = item.gross_points !== undefined ? item.gross_points : (isBe ? 0.0 : pnlPts);
+                    const grossPnl = item.gross_pnl !== undefined ? item.gross_pnl : (isBe ? 0.0 : (grossPts * tradeQty));
+                    const brok = item.brokerage !== undefined ? item.brokerage : (tradeLots * 70.0);
+                    const slip = item.slippage !== undefined ? item.slippage : 0.0;
+
                     return `
-                        <tr>
+                        <tr style="${isBe ? 'background: rgba(245, 158, 11, 0.04);' : ''}">
                             <td class="chk-col">
                                 <input type="checkbox" class="trade-row-chk" value="${tid}" ${isChecked ? 'checked' : ''} onchange="toggleTradeSelection('${tid}', this.checked)">
                             </td>
@@ -1724,11 +1818,11 @@
                             </td>
                             <td>
                                 <div style="font-weight: 800; font-family: monospace; color: ${pnlColor}; font-size: 13px;">${pnlText}</div>
-                                <span class="cell-sub" style="color: ${pnlColor}; font-weight: 700;">${pnlSign}${pnlPts.toFixed(1)} pts (${pnlSign}${pnlPct}%)</span>
+                                ${pnlSub}
                             </td>
                             <td>
                                 <span class="${isAuto ? 'tag-auto' : 'tag-manual'}">${isAuto ? '🤖 Auto' : '👤 Manual'}</span>
-                                <span class="cell-sub" style="font-weight: 700; color: ${item.status?.includes('TARGET') ? '#10b981' : (item.status?.includes('SL') ? '#ef4444' : '#38bdf8')};">${item.status || 'CLOSED'}</span>
+                                ${statusBadge}
                             </td>
                             <td>
                                 <button class="row-action-btn" title="View Full Footprint Details" onclick="toggleTradeDetails('${tid}')">🔍</button>
@@ -1747,13 +1841,20 @@
                                     </div>
                                     <div>
                                         <div class="detail-item-title">Sizing & Risk Margin</div>
-                                        <div class="detail-item-val">${item.lots || 2} Lots (${item.qty || 130} Qty)</div>
-                                        <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Margin: ₹${(item.margin_utilized || (item.entry_ltp * (item.qty||130))).toLocaleString('en-IN', {minimumFractionDigits:2})} | Max Risk: ₹${(item.max_risk_rupees || (7.5 * (item.qty||130))).toFixed(2)}</div>
+                                        <div class="detail-item-val">${tradeLots} Lots (${tradeQty} Qty)</div>
+                                        <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Margin: ₹${(item.margin_utilized || (item.entry_ltp * tradeQty)).toLocaleString('en-IN', {minimumFractionDigits:2})} | Max Risk: ₹${(item.max_risk_rupees || (7.5 * tradeQty)).toFixed(2)}</div>
                                     </div>
                                     <div>
                                         <div class="detail-item-title">Targets & Trailing Plan</div>
                                         <div class="detail-item-val" style="color: #10b981;">BE Lock: ₹${item.target_plan?.breakeven_lock || '-'} | Runner: ₹${item.target_plan?.target_2_runner || item.target_price || '-'}</div>
                                         <div style="font-size: 11px; color: var(--text-dim); margin-top: 2px;">Trade ID: <span style="font-family: monospace; color: #94a3b8;">${tid}</span></div>
+                                    </div>
+                                    <div style="grid-column: 1 / -1; background: rgba(15, 23, 42, 0.7); padding: 8px 12px; border-radius: 6px; border: 1px dashed rgba(56, 189, 248, 0.25); margin-top: 4px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px;">
+                                            <span style="color: #cbd5e1;"><b>Detailed P&L Audit:</b> Gross Points: <b style="color:#fff;">${grossPts.toFixed(1)} pts</b> (Gross PnL: ₹${grossPnl.toFixed(2)})</span>
+                                            <span style="color: #cbd5e1;">Brokerage: <b style="color:#ef4444;">-₹${brok.toFixed(2)}</b> | Slippage (1%): <b style="color:#ef4444;">-₹${slip.toFixed(2)}</b></span>
+                                            <span style="color: ${pnlColor}; font-weight: 800;">Net P&L: ${pnlText} ${isBe ? '<span style="color:#f59e0b; font-size:11px; font-weight:normal; margin-left:6px;">🛡️ (Breakeven - Excluded from 5/5 Daily Limit)</span>' : ''}</span>
+                                        </div>
                                     </div>
                                 </div>
                             </td>

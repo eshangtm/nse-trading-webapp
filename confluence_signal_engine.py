@@ -273,13 +273,10 @@ class ConfluencePaperTrader:
         tot_data = calculate_tot_decision(sr_data, spot_price)
         tot_signal = tot_data.get("recommended_signal", "NEUTRAL_EXIT") if tot_data else "NEUTRAL_EXIT"
 
-        # Combined Final Signal Decision: Trigger on Confluence OR TOT Signal
+        # Combined Final Signal Decision: Only High-Confidence Confluence Matrix
+        # (TOT IS STRICTLY ISOLATED TO PREVENT WHIPSAW LOSSES)
         final_signal = conf_signal
         trade_name = signal_info["name"]
-        if conf_signal == "NEUTRAL_EXIT" and tot_signal in ["BUY_CE", "BUY_PE"]:
-            final_signal = tot_signal
-            trade_name = f"TOT Engine ({tot_data.get('sentiment')})"
-
         signal = final_signal
 
         atm_ce_tick = strikes_map.get(atm_strike, {}).get("CE", {})
@@ -323,12 +320,6 @@ class ConfluencePaperTrader:
                     exit_reason = f"🛡️ Trailing SL Hit at Cost (₹{entry_p:.1f})"
                 else:
                     exit_reason = f"🛑 Stop Loss Hit (-{abs(current_pts):.1f} pts)"
-            elif pos_type == "CE" and signal == "BUY_PE":
-                should_exit = True
-                exit_reason = f"⚡ Reversal to {trade_name}"
-            elif pos_type == "PE" and signal == "BUY_CE":
-                should_exit = True
-                exit_reason = f"⚡ Reversal to {trade_name}"
 
             if should_exit and self.auto_trader_enabled:
                 self._execute_exit(current_option_ltp, exit_reason, timestamp=current_timestamp)
@@ -375,6 +366,22 @@ class ConfluencePaperTrader:
         import uuid
         trade_id = str(uuid.uuid4())[:8]
         now_str = timestamp or now_ist_str()
+
+        # 1. Market Hours Guard (Strict 09:30 AM to 15:00 PM)
+        t_part = now_str.split(" ")[-1] if " " in now_str else ""
+        if t_part and (t_part < "09:30:00" or t_part >= "15:00:00"):
+            return
+
+        # 2. Max Daily Target: Only PROFIT TRADES count towards the daily target limit (2 to 5)
+        today_date = now_str[:10]
+        with self._lock:
+            conn = self.get_connection()
+            try:
+                profit_cnt = conn.execute("SELECT COUNT(*) FROM confluence_paper_trades WHERE entry_time LIKE ? AND pnl > 0;", (f"{today_date}%",)).fetchone()[0]
+                if profit_cnt >= getattr(self, "max_trades_per_day", 2):
+                    return
+            finally:
+                conn.close()
 
         with self._lock:
             conn = self.get_connection()
@@ -432,6 +439,8 @@ class ConfluencePaperTrader:
                 self.active_position = None
                 try:
                     print(f"[AUTO-EXIT] Position Closed at Rs.{exit_price} | PnL: Rs.{pnl} ({pnl_pct}%) | Reason: {exit_reason}")
+                except Exception:
+                    pass
                 except Exception:
                     pass
             except Exception as e:

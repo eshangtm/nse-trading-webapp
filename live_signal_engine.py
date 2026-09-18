@@ -28,39 +28,67 @@ SIGNALS_DB_FILE = os.path.join(LOCAL_COLLECTED, "institutional_trades.db") if os
 WALLET_FILE = os.path.join(LOCAL_VAULT, "signals_virtual_wallet.json") if os.path.exists(LOCAL_VAULT) else os.path.join(DATA_DIR, "signals_virtual_wallet.json")
 
 class LiveSignalEngine:
-    def __init__(self):
+    def __init__(self, user_id="default"):
+        self.user_id = str(user_id) if user_id is not None else "default"
+        base_vault = LOCAL_VAULT if os.path.exists(LOCAL_VAULT) else DATA_DIR
+        base_coll = LOCAL_COLLECTED if os.path.exists(LOCAL_COLLECTED) else DATA_DIR
+
+        if self.user_id in ["default", "admin"]:
+            self.state_file = STATE_FILE
+            self.signals_log_file = SIGNALS_LOG_FILE
+            self.signals_csv_file = SIGNALS_CSV_FILE
+            self.signals_db_file = SIGNALS_DB_FILE
+            self.wallet_file = WALLET_FILE
+        else:
+            self.state_file = os.path.join(base_vault, f"signal_engine_state_{self.user_id}.json")
+            self.signals_log_file = os.path.join(base_vault, f"live_signals_log_{self.user_id}.json")
+            self.signals_csv_file = os.path.join(base_vault, f"institutional_live_trades_{self.user_id}.csv")
+            self.signals_db_file = os.path.join(base_coll, f"institutional_trades_{self.user_id}.db")
+            self.wallet_file = os.path.join(base_vault, f"signals_virtual_wallet_{self.user_id}.json")
+
         self.state = {
             "master_switch": True,        # Master ON/OFF Switch
-            "auto_trading": True,         # Autonomous execution enabled by default
+            "auto_trading": False,        # Off by default until user specifically turns their auto system on!
             "lot_size_multiplier": 2,     # 2 Lots default (130 Qty) for 40k/week target
             "strike_selection_mode": "ITM_1", # User-configurable: ITM_1, ATM, ITM_2, OTM_1
-            "stop_loss_pts": 7.5,         # Strict 7.5 pts SL
-            "breakeven_trigger_pts": 3.0, # +3.0 pts lock breakeven
-            "target_p6_lock": 6.0,
-            "target_p12_lock": 12.0,
+            "stop_loss_pts": 15.0,        # Safe 15.0 pts SL to avoid getting chopped by tick noise
+            "breakeven_trigger_pts": 6.0, # +6.0 pts lock breakeven
+            "target_p6_lock": 12.0,       # Lock profit at +12 pts
+            "target_p12_lock": 25.0,      # Runner trail at +25 pts
             "max_eod_time": "15:00",      # Strict 3:00 PM Exit
-            "max_trades_per_day": 5,      # Disciplined Rule: Max 5 A+ setups per day
+            "max_trades_per_day": 2,      # Disciplined Rule: Max 1-2 A+ setups per day
             "active_signal": None,
-            "last_processed_time": None
+            "last_processed_time": None,
+            "cooldown_until": None        # Mandatory post-exit cooling window
         }
         self.price_history = []
         self.last_signal_time = 0.0
+        self.last_tick_eval_time = 0.0
         self.load_state()
         self.wallet = self.load_wallet()
 
     def load_state(self):
-        if os.path.exists(STATE_FILE):
+        target_file = self.state_file
+        if not os.path.exists(target_file) and self.user_id in ["default", "admin", "1"] and os.path.exists(STATE_FILE):
+            target_file = STATE_FILE
+        if os.path.exists(target_file):
             try:
-                with open(STATE_FILE, "r", encoding="utf-8") as f:
+                with open(target_file, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     self.state.update(saved)
             except Exception:
                 pass
 
     def save_state(self):
-        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        with open(STATE_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
+        with open(self.state_file, "w", encoding="utf-8") as f:
             json.dump(self.state, f, indent=2)
+        if self.user_id in ["default", "admin"] and self.state_file != STATE_FILE:
+            try:
+                with open(STATE_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self.state, f, indent=2)
+            except Exception:
+                pass
 
     # ══════════════════════════════════════════════════════════════════
     # DEDICATED VIRTUAL WALLET SYSTEM
@@ -82,9 +110,12 @@ class LiveSignalEngine:
             "last_trade_date": datetime.now().strftime("%Y-%m-%d"),
             "active_positions": []
         }
-        if os.path.exists(WALLET_FILE):
+        target_file = self.wallet_file
+        if not os.path.exists(target_file) and self.user_id in ["default", "admin", "1"] and os.path.exists(WALLET_FILE):
+            target_file = WALLET_FILE
+        if os.path.exists(target_file):
             try:
-                with open(WALLET_FILE, "r", encoding="utf-8") as f:
+                with open(target_file, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     if "initial_capital" in saved:
                         default_wallet["initial_capital"] = float(saved["initial_capital"])
@@ -94,9 +125,15 @@ class LiveSignalEngine:
         return self.recalculate_wallet()
 
     def save_wallet(self):
-        os.makedirs(os.path.dirname(WALLET_FILE), exist_ok=True)
-        with open(WALLET_FILE, "w", encoding="utf-8") as f:
+        os.makedirs(os.path.dirname(self.wallet_file), exist_ok=True)
+        with open(self.wallet_file, "w", encoding="utf-8") as f:
             json.dump(self.wallet, f, indent=2)
+        if self.user_id in ["default", "admin"] and self.wallet_file != WALLET_FILE:
+            try:
+                with open(WALLET_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self.wallet, f, indent=2)
+            except Exception:
+                pass
 
     def is_market_open(self, dt=None):
         """Check if market is currently open (Monday-Friday 09:15 to 15:30 IST)."""
@@ -180,12 +217,12 @@ class LiveSignalEngine:
         trades = self.get_trades()
         executed_trades = [
             t for t in trades 
-            if t.get("status") in ["AUTO_EXECUTED", "MANUALLY_EXECUTED", "TARGET_HIT", "SL_HIT", "CLOSED"]
+            if t.get("status") in ["AUTO_EXECUTED", "MANUALLY_EXECUTED", "TARGET_HIT", "SL_HIT", "CLOSED", "BREAKEVEN"]
             and t.get("pnl_rupees") is not None
         ]
         
-        wins = sum(1 for t in executed_trades if (float(t.get("pnl_rupees", 0) or 0) > 0 or "TARGET" in str(t.get("status"))))
-        losses = sum(1 for t in executed_trades if (float(t.get("pnl_rupees", 0) or 0) < 0 or "SL" in str(t.get("status"))))
+        wins = sum(1 for t in executed_trades if (float(t.get("gross_pnl", t.get("pnl_rupees", 0)) or 0) > 0 and not t.get("is_breakeven") and t.get("status") != "BREAKEVEN"))
+        losses = sum(1 for t in executed_trades if ((float(t.get("gross_pnl", t.get("pnl_rupees", 0)) or 0) < -10.0 or "SL" in str(t.get("status"))) and not t.get("is_breakeven") and t.get("status") != "BREAKEVEN"))
         tot = len(executed_trades)
         realized_pnl = sum(float(t.get("pnl_rupees", 0) or 0) for t in executed_trades)
 
@@ -196,11 +233,17 @@ class LiveSignalEngine:
         ]
         today_pnl = sum(float(t.get("pnl_rupees", 0) or 0) for t in today_trades)
 
-        # Count all trades initiated today towards daily discipline lock
+        # Count trades initiated today towards daily discipline lock
         all_today_trades = [
             t for t in trades
             if str(t.get("timestamp") or t.get("entry_time") or t.get("executed_at") or "").startswith(today_str)
             and t.get("status") not in ["CANCELLED_BY_USER", "ACTIVE_PENDING_CONFIRMATION"]
+        ]
+
+        # User Rule: ONLY PROFITABLE TRADES count towards the daily target quota (2 to 5)!
+        profit_trades_today = [
+            t for t in today_trades
+            if (float(t.get("gross_pnl", t.get("pnl_rupees", 0)) or 0) > 0 and not t.get("is_breakeven") and t.get("status") != "BREAKEVEN")
         ]
 
         init_cap = float(self.wallet.get("initial_capital", 100000.0))
@@ -213,8 +256,8 @@ class LiveSignalEngine:
         self.wallet["cash_balance"] = round(init_cap + realized_pnl, 2)
         self.wallet["total_pnl_pct"] = round((realized_pnl / init_cap) * 100.0, 2) if init_cap > 0 else 0.0
         self.wallet["today_pnl"] = round(today_pnl, 2)
-        self.wallet["daily_trades_taken"] = len(all_today_trades)
-        self.wallet["max_daily_trades"] = self.state.get("max_trades_per_day", 5)
+        self.wallet["daily_trades_taken"] = len(profit_trades_today)
+        self.wallet["max_daily_trades"] = self.state.get("max_trades_per_day", 2)
         self.wallet["last_trade_date"] = today_str
         self.save_wallet()
         return self.wallet
@@ -241,16 +284,28 @@ class LiveSignalEngine:
             "win_rate": 0.0,
             "today_pnl": 0.0,
             "daily_trades_taken": 0,
-            "max_daily_trades": self.state.get("max_trades_per_day", 5),
+            "max_daily_trades": self.state.get("max_trades_per_day", 2),
             "last_trade_date": datetime.now().strftime("%Y-%m-%d"),
             "active_positions": []
         }
         self.save_wallet()
 
+        # Wipe SQLite trade records
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.signals_db_file, timeout=10.0)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM institutional_trades")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error wiping SQLite trades for {self.user_id}:", e)
+
         # Wipe trade log
         self._sync_trades_to_storage([])
 
         self.state["active_signal"] = None
+        self.state["cooldown_until"] = None
         self.save_state()
         return {
             "status": "ok",
@@ -262,24 +317,41 @@ class LiveSignalEngine:
         """Resets only the daily discipline counter back to 0 without wiping history"""
         self.wallet["daily_trades_taken"] = 0
         self.save_wallet()
-        limit_val = self.state.get("max_trades_per_day", 5)
+        limit_val = self.state.get("max_trades_per_day", 2)
         return {
             "status": "ok",
             "message": f"Daily trade limit reset to 0/{limit_val}.",
             "wallet": self.wallet
         }
 
+    def set_max_daily_trades(self, limit: int):
+        """Allows user to manually adjust daily profit trades target (e.g. 2 to 5 trades)"""
+        limit = max(1, min(10, int(limit)))
+        self.state["max_trades_per_day"] = limit
+        self.save_state()
+        self.wallet["max_daily_trades"] = limit
+        self.save_wallet()
+        return {"status": "ok", "max_trades_per_day": limit, "wallet": self.wallet}
+
     # ══════════════════════════════════════════════════════════════════
     # TRADE LOG & SELECTION / DELETION MANAGEMENT
     # ══════════════════════════════════════════════════════════════════
     def get_trades(self, date: str = None):
         trades = []
-        if os.path.exists(SIGNALS_LOG_FILE):
+        target_file = self.signals_log_file
+        if not os.path.exists(target_file) and self.user_id in ["default", "admin", "1"] and os.path.exists(SIGNALS_LOG_FILE):
+            target_file = SIGNALS_LOG_FILE
+        if os.path.exists(target_file):
             try:
-                with open(SIGNALS_LOG_FILE, "r", encoding="utf-8") as f:
+                with open(target_file, "r", encoding="utf-8") as f:
                     trades = json.load(f)
             except Exception:
                 trades = []
+        # Only return real executed or closed trades (exclude pending unexecuted radar alerts)
+        trades = [
+            t for t in trades
+            if t.get("status") not in ["ACTIVE_PENDING_CONFIRMATION", "PENDING", "CANCELLED_BY_USER"]
+        ]
         if date:
             trades = [
                 t for t in trades
@@ -295,6 +367,18 @@ class LiveSignalEngine:
 
         id_set = set(str(tid) for tid in trade_ids)
         kept = [t for t in current_trades if str(t.get("signal_id")) not in id_set and str(t.get("trade_id")) not in id_set]
+
+        # Prune deleted IDs from SQLite database
+        try:
+            import sqlite3
+            conn = sqlite3.connect(self.signals_db_file, timeout=10.0)
+            cur = conn.cursor()
+            for tid in id_set:
+                cur.execute("DELETE FROM institutional_trades WHERE trade_id = ? OR signal_id = ?", (tid, tid))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error pruning SQLite trades for {self.user_id}:", e)
 
         # Save kept trades to JSON, CSV & SQLite
         self._sync_trades_to_storage(kept)
@@ -382,11 +466,19 @@ class LiveSignalEngine:
         if not is_open and not is_test:
             return {"status": "error", "message": f"Execution Blocked: {m_reason}"}
 
-        # Golden Rule Verification: Max 2 A+ Trades per day
+        # Position guard: Only 1 active running position allowed at a time
+        if self.wallet.get("active_positions"):
+            return {"status": "error", "message": "Position already active. Only 1 active trade allowed at a time."}
+
+        # Golden Rule Verification: Max Trades per day
         today_str = datetime.now().strftime("%Y-%m-%d")
         if self.wallet.get("last_trade_date") != today_str:
             self.wallet["last_trade_date"] = today_str
             self.wallet["daily_trades_taken"] = 0
+
+        max_daily = self.state.get("max_trades_per_day", 5)
+        if self.wallet.get("daily_trades_taken", 0) >= max_daily and not is_test:
+            return {"status": "error", "message": f"Daily limit reached ({self.wallet.get('daily_trades_taken', 0)}/{max_daily})."}
 
         # Execute
         exec_type = "AUTO_EXECUTED" if is_auto or self.state.get("auto_trading") else "MANUALLY_EXECUTED"
@@ -520,22 +612,43 @@ class LiveSignalEngine:
 
         entry_ltp = float(matched.get("entry_ltp", 140.0))
         qty = int(matched.get("qty", 130))
+        lots = int(matched.get("lots") or max(1, qty // 65))
+        is_breakeven = False
 
         if outcome == "TARGET_HIT":
-            exit_price = exit_ltp if exit_ltp is not None else float(matched.get("target_plan", {}).get("target_2_runner", entry_ltp + 12.0))
-            pnl_pts = round(exit_price - entry_ltp, 2)
+            exit_price = exit_ltp if exit_ltp is not None else float(matched.get("target_price") or matched.get("target_plan", {}).get("target_2_runner", entry_ltp + 12.0))
             matched["status"] = "TARGET_HIT"
         elif outcome == "SL_HIT":
             exit_price = exit_ltp if exit_ltp is not None else float(matched.get("stop_loss_price", entry_ltp - 7.5))
-            pnl_pts = round(exit_price - entry_ltp, 2)
             matched["status"] = "SL_HIT"
-        else: # BREAKEVEN or CUSTOM
+        elif outcome in ["BREAKEVEN", "COST", "TRAILED_TO_COST"]:
+            exit_price = exit_ltp if exit_ltp is not None else float(matched.get("target_plan", {}).get("breakeven_lock", entry_ltp))
+            matched["status"] = "BREAKEVEN"
+            is_breakeven = True
+        else: # MANUAL_CLOSE or CLOSED
             exit_price = exit_ltp if exit_ltp is not None else float(matched.get("target_plan", {}).get("breakeven_lock", entry_ltp + 3.0))
-            pnl_pts = round(exit_price - entry_ltp, 2)
             matched["status"] = "CLOSED"
 
-        pnl_rupees = round(pnl_pts * qty, 2)
-        pnl_pct = round((pnl_pts / entry_ltp * 100.0), 2) if entry_ltp > 0 else 0.0
+        gross_pts = round(exit_price - entry_ltp, 2)
+        if abs(gross_pts) <= 0.5 or outcome == "BREAKEVEN":
+            is_breakeven = True
+            matched["status"] = "BREAKEVEN"
+
+        # ── Realistic Execution Math: 1.0% Entry & 1.0% Exit Slippage + Flat Rs. 70/lot Brokerage ──
+        BROKERAGE_PER_LOT = 70.0
+        SLIPPAGE_PCT = 1.0
+
+        slip_entry_pts = max(0.05, round(round(entry_ltp * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
+        slip_exit_pts = max(0.05, round(round(exit_price * (SLIPPAGE_PCT / 100.0) / 0.05) * 0.05, 2))
+        slippage_pts = round(slip_entry_pts + slip_exit_pts, 2)
+        slippage_rupees = round(slippage_pts * qty, 2)
+        brokerage_rupees = round(lots * BROKERAGE_PER_LOT, 2)
+        total_friction = round(brokerage_rupees + slippage_rupees, 2)
+
+        gross_pnl_rupees = round(gross_pts * qty, 2)
+        net_pnl_rupees = round(gross_pnl_rupees - total_friction, 2)
+        net_pnl_pts = round(net_pnl_rupees / qty, 2)
+        net_pnl_pct = round((net_pnl_pts / entry_ltp * 100.0), 2) if entry_ltp > 0 else 0.0
 
         # Calculate Exit Spot
         exit_spot = None
@@ -555,7 +668,7 @@ class LiveSignalEngine:
             pass
 
         if exit_spot is None:
-            exit_spot = round(entry_spot_val + (sign * pnl_pts / (abs(delta_val) if abs(delta_val) > 0.1 else 0.65)), 2)
+            exit_spot = round(entry_spot_val + (sign * gross_pts / (abs(delta_val) if abs(delta_val) > 0.1 else 0.65)), 2)
 
         entry_spot_val = float(matched.get("entry_spot", exit_spot))
         spot_change = round(exit_spot - entry_spot_val, 2)
@@ -566,9 +679,15 @@ class LiveSignalEngine:
         matched["exit_time"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not matched.get("entry_time"):
             matched["entry_time"] = matched.get("timestamp") or matched.get("executed_at")
-        matched["pnl_points"] = pnl_pts
-        matched["pnl_pct"] = pnl_pct
-        matched["pnl_rupees"] = pnl_rupees
+        matched["is_breakeven"] = is_breakeven
+        matched["gross_points"] = gross_pts
+        matched["gross_pnl"] = gross_pnl_rupees
+        matched["brokerage"] = brokerage_rupees
+        matched["slippage"] = slippage_rupees
+        matched["total_friction"] = total_friction
+        matched["pnl_points"] = net_pnl_pts
+        matched["pnl_pct"] = net_pnl_pct
+        matched["pnl_rupees"] = net_pnl_rupees
 
         # Save trades to JSON, CSV, and SQLite
         self._sync_trades_to_storage(trades)
@@ -579,13 +698,13 @@ class LiveSignalEngine:
         self.wallet["active_positions"] = []
         self.save_wallet()
 
-        # Clear active signal from state
+        # Clear active signal from state (Ready for next trade once a new setup confirms)
         self.state["active_signal"] = None
         self.save_state()
 
         return {
             "status": "ok",
-            "message": f"Trade closed with P&L: ₹{pnl_rupees:,.2f} ({pnl_pts:+} pts)",
+            "message": f"Trade closed with P&L: ₹{net_pnl_rupees:,.2f} ({net_pnl_pts:+} pts)",
             "trade": matched,
             "wallet": self.wallet
         }
@@ -694,7 +813,6 @@ class LiveSignalEngine:
         self.state["active_signal"] = sig
         self.state["last_processed_time"] = now_ts
         self.save_state()
-        self._log_signal(sig)
         return {"status": "ok", "signal": sig}
 
     def evaluate_live_minute(self, df_15m_window):
@@ -719,6 +837,10 @@ class LiveSignalEngine:
         # Time filter: 09:25 to 14:45 only
         if t_part < "09:25:00" or t_part >= "14:45:00":
             return {"status": "outside_hours", "message": "Trading window closed"}
+
+        # Quant Strategy: Midday Chop Avoidance (12:00 to 13:00 - High Fakeout / Theta decay zone)
+        if "12:00:00" <= t_part <= "13:00:00":
+            return {"status": "midday_filter", "message": "12:00-13:00 Midday chop filter active (Preserving capital)"}
 
         spot = float(last_row["spot"])
         start_spot = float(df_15m_window["spot"].iloc[0])
@@ -751,12 +873,22 @@ class LiveSignalEngine:
         itm_put_strike, put_delta, put_lbl = self.calculate_trade_strike(spot, "PUT")
 
         signal = None
+        
+        # Day-based Asymmetric Position Sizing (Friday Trend King & Tuesday Expiry Gamma: 3 Lots booster)
+        day_name = datetime.now().strftime("%A")
         lots = self.state["lot_size_multiplier"]
+        if day_name in ["Friday", "Tuesday"]:
+            lots = max(lots, 3) # 3 Lots (195 Qty) on high-profit days
         qty = lots * 65
 
-        # BULLISH TRIGGER: (PE Put Shield / Support Absorption / Delta Burst)
-        if (spot_run <= -15.0 and pe_oi_bld > ce_oi_bld and pe_oi_bld >= 80000) or \
-           (spot_run <= -18.0 and v_diff_ce >= v_ma_ce * 2.0 and ce_d >= 0.55):
+        # USER STRATEGY RULE: OI + Volume UP -> BUY CALL, OI + Volume DOWN -> BUY PE
+        # Bullish Flow: CE Volume dominance / surge + PE Support OI building
+        oi_vol_bullish = (v_diff_ce > v_diff_pe or v_diff_ce >= v_ma_ce * 1.2) and (pe_oi_bld >= 50000 or pe_oi_bld > ce_oi_bld)
+        # Bearish Flow: PE Volume dominance / surge + CE Resistance OI building
+        oi_vol_bearish = (v_diff_pe > v_diff_ce or v_diff_pe >= v_ma_pe * 1.2) and (ce_oi_bld >= 50000 or ce_oi_bld > pe_oi_bld)
+
+        # BULLISH TRIGGER: (PE Put Shield / Support Absorption / Delta Burst + OI/Vol UP Confirmation)
+        if oi_vol_bullish and ((spot_run <= -12.0 and pe_oi_bld > ce_oi_bld) or (spot >= ema_21 and v_diff_ce >= v_ma_ce * 1.5)):
             signal = {
                 "signal_id": f"SIG_{int(datetime.now().timestamp())}",
                 "trade_id": f"TRD_{int(datetime.now().timestamp())}",
@@ -794,9 +926,8 @@ class LiveSignalEngine:
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 
-        # BEARISH TRIGGER: (CE Call Fortress / Resistance Exhaustion / Delta Burst)
-        elif (spot_run >= 15.0 and ce_oi_bld > pe_oi_bld and ce_oi_bld >= 80000) or \
-             (spot_run >= 18.0 and v_diff_pe >= v_ma_pe * 2.0 and abs(pe_d) >= 0.55):
+        # BEARISH TRIGGER: (CE Call Fortress / Resistance Exhaustion / Delta Burst + OI/Vol DOWN Confirmation)
+        elif oi_vol_bearish and ((spot_run >= 12.0 and ce_oi_bld > pe_oi_bld) or (spot <= ema_21 and v_diff_pe >= v_ma_pe * 1.5)):
             signal = {
                 "signal_id": f"SIG_{int(datetime.now().timestamp())}",
                 "trade_id": f"TRD_{int(datetime.now().timestamp())}",
@@ -838,7 +969,6 @@ class LiveSignalEngine:
             self.state["active_signal"] = signal
             self.state["last_processed_time"] = ts
             self.save_state()
-            self._log_signal(signal)
 
             # Auto-execute if enabled
             if self.state.get("auto_trading"):
@@ -907,28 +1037,38 @@ class LiveSignalEngine:
                 if "peak_pts" not in p or pts_gain > p["peak_pts"]:
                     p["peak_pts"] = pts_gain
 
-                # Dynamic Trailing Stop Loss
-                # Tier 1: Breakeven at +3.0 pts
-                if p["peak_pts"] >= self.state.get("breakeven_trigger_pts", 3.0) and not p.get("trailed_to_cost"):
-                    p["sl_price"] = entry_p
-                    p["trailed_to_cost"] = True
-                    p["tsl_stage"] = f"COST LOCKED (₹{entry_p:.1f})"
+                # Dynamic Trailing Stop Loss & User's +₹200 Pullback Shield:
+                # Rule: Agar brokerage katne ke baad >= 3 net pts profit mila,
+                # toh pullback aane par kam se kam +₹200 NET profit me hi trade exit ho!
+                brok_pts = round(140.0 / max(1, qty), 2)  # ~1.08 pts for 130 qty
+                net_peak = p["peak_pts"] - brok_pts
 
-                # Tier 2: Lock 50% (+3 to +6 pts)
-                if p["peak_pts"] >= self.state.get("target_p6_lock", 6.0) and p["peak_pts"] < self.state.get("target_p12_lock", 12.0):
-                    locked = round(p["peak_pts"] * 0.50, 1)
-                    cand_sl = round(entry_p + locked, 1)
+                if net_peak >= 3.0:
+                    lock_pts = round((200.0 + 140.0) / max(1, qty), 2)  # ~2.62 pts = +₹200 Net
+                    cand_sl = round(entry_p + lock_pts, 2)
                     if cand_sl > p.get("sl_price", entry_p):
                         p["sl_price"] = cand_sl
-                        p["tsl_stage"] = f"PROFIT LOCKED (+{locked} pts | ₹{cand_sl:.1f})"
+                        p["tsl_stage"] = f"GUARANTEED +₹200 PROFIT LOCKED (₹{cand_sl:.1f})"
 
-                # Tier 3: Lock 65% for runners (>= +12 pts)
-                elif p["peak_pts"] >= self.state.get("target_p12_lock", 12.0):
+                # Tier 1: Cost lock at +3.0 gross pts
+                elif p["peak_pts"] >= self.state.get("breakeven_trigger_pts", 3.0) and not p.get("trailed_to_cost"):
+                    p["sl_price"] = round(entry_p + brok_pts, 2)
+                    p["trailed_to_cost"] = True
+                    p["tsl_stage"] = f"COST+BROKERAGE LOCKED (₹{entry_p + brok_pts:.1f})"
+
+                # Tier 2: Higher profit trailing (Lock 50% for >= +6 pts, 65% for >= +12 pts)
+                if p["peak_pts"] >= self.state.get("target_p12_lock", 12.0):
                     locked = round(p["peak_pts"] * 0.65, 1)
                     cand_sl = round(entry_p + locked, 1)
                     if cand_sl > p.get("sl_price", entry_p):
                         p["sl_price"] = cand_sl
                         p["tsl_stage"] = f"RUNNER LOCKED (+{locked} pts | ₹{cand_sl:.1f})"
+                elif p["peak_pts"] >= self.state.get("target_p6_lock", 6.0):
+                    locked = round(p["peak_pts"] * 0.50, 1)
+                    cand_sl = round(entry_p + locked, 1)
+                    if cand_sl > p.get("sl_price", entry_p):
+                        p["sl_price"] = cand_sl
+                        p["tsl_stage"] = f"PROFIT LOCKED (+{locked} pts | ₹{cand_sl:.1f})"
 
                 tgt_p = float(p.get("target_price", entry_p + 15.0))
                 sl_p = float(p.get("sl_price", entry_p - self.state.get("stop_loss_pts", 7.5)))
@@ -946,40 +1086,63 @@ class LiveSignalEngine:
 
             return {"status": "in_trade", "active_positions": self.wallet.get("active_positions")}
 
-        # 2. Check Daily Trades Discipline
+        # 2. Check Daily Trades Discipline (Max 1-2 A+ Setups Per Day)
         today_str = ts_str[:10]
         if self.wallet.get("last_trade_date") != today_str:
             self.wallet["last_trade_date"] = today_str
             self.wallet["daily_trades_taken"] = 0
             self.save_wallet()
 
-        if self.wallet.get("daily_trades_taken", 0) >= self.state.get("max_trades_per_day", 5):
-            return {"status": "daily_limit_reached", "message": "Max daily trades reached"}
+        max_daily = int(self.state.get("max_trades_per_day", 2))
+        profit_trades_count = int(self.wallet.get("daily_trades_taken", 0))
+        if profit_trades_count >= max_daily:
+            return {"status": "daily_limit_reached", "message": f"Daily target of {max_daily} profit trades reached ({profit_trades_count}/{max_daily})."}
+
+        # 2.5 Market Opening Range & Curfew Guard (Strict No-Trade Zones)
+        t_part = ts_str.split(" ")[-1] if " " in ts_str else ""
+        if t_part:
+            if t_part < "09:30:00":
+                return {"status": "opening_settlement_wait", "message": f"Waiting for 15m opening range settlement (09:15-09:30 AM). Current: {t_part}"}
+            if t_part >= "15:00:00":
+                return {"status": "outside_hours", "message": f"Trading window closed after 15:00:00. Current: {t_part}"}
+
+        # 2.6 Next trade eligible immediately once previous trade is closed (No timer lock)
+
+        # 2.7 Frequency Throttling (Avoid running heavy tick math on high-frequency UI polls)
+        now_ts_sec = datetime.now().timestamp()
+        if hasattr(self, "last_tick_eval_time") and (now_ts_sec - self.last_tick_eval_time < 1.5):
+            return {"status": "throttled", "message": "Tick evaluation throttled"}
+        self.last_tick_eval_time = now_ts_sec
 
         # 3. Track Price History & Calculate Trend Momentum
         if not hasattr(self, "price_history"):
             self.price_history = []
         self.price_history.append((ts_str, spot_price))
-        if len(self.price_history) > 30:
+        if len(self.price_history) > 60:
             self.price_history.pop(0)
+
+        # Warm-up requirement: Must accumulate at least 21 ticks for reliable EMA
+        if len(self.price_history) < 21:
+            return {"status": "warmup", "message": f"Accumulating price ticks ({len(self.price_history)}/21)..."}
 
         # Calculate EMA9 and EMA21
         spots = [s for _, s in self.price_history]
-        ema9 = spots[-1]
-        ema21 = spots[-1]
-        if len(spots) >= 9:
-            k9 = 2.0 / (9 + 1)
-            ema9 = spots[0]
-            for val in spots[1:]:
-                ema9 = (val * k9) + (ema9 * (1 - k9))
-        if len(spots) >= 21:
-            k21 = 2.0 / (21 + 1)
-            ema21 = spots[0]
-            for val in spots[1:]:
-                ema21 = (val * k21) + (ema21 * (1 - k21))
+        k9 = 2.0 / (9 + 1)
+        k21 = 2.0 / (21 + 1)
+        ema9 = spots[0]
+        for val in spots[1:]:
+            ema9 = (val * k9) + (ema9 * (1 - k9))
+        ema21 = spots[0]
+        for val in spots[1:]:
+            ema21 = (val * k21) + (ema21 * (1 - k21))
 
-        # Recent spot run
-        start_spot = spots[0] if len(spots) >= 5 else spot_price
+        # Divergence Requirement: EMA9 and EMA21 must be separated by at least 1.5 pts
+        ema_diff = ema9 - ema21
+        is_bull_trend = (ema_diff >= 1.5) and (spot_price >= ema9)
+        is_bear_trend = (ema_diff <= -1.5) and (spot_price <= ema9)
+
+        # Recent spot run (last 5 ticks)
+        start_spot = spots[-5] if len(spots) >= 5 else spots[0]
         spot_run = spot_price - start_spot
 
         # Calculate AOC S/R
@@ -992,27 +1155,45 @@ class LiveSignalEngine:
             s1 = spot_price - 40.0
             r1 = spot_price + 40.0
 
-        is_bull_trend = (ema9 >= ema21) and (spot_price >= ema9)
-        is_bear_trend = (ema9 <= ema21) and (spot_price <= ema9)
+        # Extract Open Interest & Volume confirmation around ATM (+- 150 pts)
+        ce_oi_tot = 0.0
+        pe_oi_tot = 0.0
+        ce_oichg_tot = 0.0
+        pe_oichg_tot = 0.0
+        for t in ticks:
+            stk = float(t.get("strike", 0.0))
+            if abs(stk - spot_price) <= 150.0:
+                otype = t.get("type")
+                oi_val = float(t.get("oi") or 0.0)
+                oichg_val = float(t.get("oi_change") or t.get("chg_oi") or 0.0)
+                if otype == "CE":
+                    ce_oi_tot += oi_val
+                    ce_oichg_tot += oichg_val
+                elif otype == "PE":
+                    pe_oi_tot += oi_val
+                    pe_oichg_tot += oichg_val
+
+        # OI confirmation flags (Reject naked trades without smart money build-up)
+        has_oi_data = (ce_oi_tot > 0 or pe_oi_tot > 0)
+        oi_bull_confirmed = has_oi_data and (pe_oi_tot >= ce_oi_tot * 0.9 or pe_oichg_tot >= ce_oichg_tot)
+        oi_bear_confirmed = has_oi_data and (ce_oi_tot >= pe_oi_tot * 0.9 or ce_oichg_tot >= pe_oichg_tot)
 
         signal = None
         lots = self.state.get("lot_size_multiplier", 2)
         qty = lots * 65
+        sl_pts = float(self.state.get("stop_loss_pts", 15.0))
 
         # ══════════════════════════════════════════════════════════════════
-        # TRIGGER LOGIC:
-        # A) 🚀 BULLISH BREAKOUT: Spot crosses R1 or enters upper breakout zone with strong bullish trend
-        # B) ⚖️ SUPPORT BOUNCE: Spot at Support S1 and bouncing up above EMA9
-        # C) 🩸 BEARISH BREAKDOWN: Spot crosses S1 downwards with strong bearish trend
-        # D) ⚖️ RESISTANCE REJECTION: Spot at Resistance R1 and rejecting downwards below EMA9
+        # STRICT TRIGGER LOGIC (CONFLUENCE REQUIRED: NO NAKED BREAKOUTS):
         # ══════════════════════════════════════════════════════════════════
-        
-        # 1. BULLISH BREAKOUT SETUP
-        if (spot_price >= r1 - 5.0 and is_bull_trend) or (spot_price >= r1 + 2.0) or (spot_run >= 25.0 and is_bull_trend):
-            itm_strike = round((spot_price - 50.0) / 50.0) * 50.0
+
+        # 1. BULLISH BREAKOUT SETUP: Fresh crossing of R1 with EMA trend & Put writers support
+        breakout_zone = (r1 <= spot_price <= r1 + 20.0)
+        if breakout_zone and is_bull_trend and oi_bull_confirmed and (spot_run >= 5.0):
+            strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "CALL")
             ce_ltp = 145.0
             for t in ticks:
-                if t.get("type") == "CE" and float(t.get("strike", 0)) == itm_strike:
+                if t.get("type") == "CE" and float(t.get("strike", 0)) == strike:
                     ce_ltp = float(t.get("ltp") or ce_ltp)
                     break
 
@@ -1022,39 +1203,41 @@ class LiveSignalEngine:
                 "timestamp": ts_str,
                 "entry_time": ts_str,
                 "action": "BUY_CE",
-                "contract": f"NIFTY {int(itm_strike)} CE (1 ITM)",
+                "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
                 "direction": "CALL",
-                "strike_price": int(itm_strike),
+                "strike_price": int(strike),
                 "option_type": "CE",
                 "entry_spot": round(spot_price, 2),
                 "entry_ltp": round(ce_ltp, 2),
                 "lots": lots,
                 "qty": qty,
-                "stop_loss_pts": self.state["stop_loss_pts"],
-                "stop_loss_price": round(ce_ltp - self.state["stop_loss_pts"], 2),
+                "stop_loss_pts": sl_pts,
+                "stop_loss_price": round(ce_ltp - sl_pts, 2),
                 "target_plan": {
-                    "breakeven_lock": round(ce_ltp + 3.0, 2),
-                    "target_1": round(ce_ltp + 8.0, 2),
-                    "target_2_runner": round(ce_ltp + 20.0, 2)
+                    "breakeven_lock": round(ce_ltp + 6.0, 2),
+                    "target_1": round(ce_ltp + 15.0, 2),
+                    "target_2_runner": round(ce_ltp + 35.0, 2)
                 },
-                "target_price": round(ce_ltp + 20.0, 2),
-                "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
+                "target_price": round(ce_ltp + 35.0, 2),
+                "max_risk_rupees": round(sl_pts * qty, 2),
                 "margin_utilized": round(ce_ltp * qty, 2),
-                "target_profit_rupees": round(20.0 * qty, 2),
+                "target_profit_rupees": round(35.0 * qty, 2),
                 "ma_9": round(ema9, 2),
                 "ema_21": round(ema21, 2),
-                "delta": 0.65,
+                "delta": delta,
+                "oi": int(pe_oi_tot),
+                "oi_change": int(pe_oichg_tot),
                 "weapon_signature": "WEAPON_R1_BREAKOUT / INSTITUTIONAL_SURGE",
-                "weapon_reason": f"Resistance {r1:.1f} Broken Out! Momentum Bullish (EMA9 > EMA21) | Target +20 pts runner | Delta 0.65",
+                "weapon_reason": f"Resistance {r1:.1f} Breakout Confirmed (EMA9 > EMA21 +{ema_diff:.1f}pts) | Put OI Support | Delta {delta:.2f}",
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 
-        # 2. SUPPORT BOUNCE REVERSAL SETUP
-        elif (spot_price <= s1 + 10.0 and spot_price >= s1 - 5.0) and (spot_price > ema9 or spot_run >= 6.0):
-            itm_strike = round((spot_price - 50.0) / 50.0) * 50.0
+        # 2. SUPPORT BOUNCE REVERSAL SETUP: Spot bouncing off S1 with Put writers floor
+        elif (s1 - 5.0 <= spot_price <= s1 + 12.0) and (spot_price > ema9) and (spot_run >= 6.0) and oi_bull_confirmed:
+            strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "CALL")
             ce_ltp = 145.0
             for t in ticks:
-                if t.get("type") == "CE" and float(t.get("strike", 0)) == itm_strike:
+                if t.get("type") == "CE" and float(t.get("strike", 0)) == strike:
                     ce_ltp = float(t.get("ltp") or ce_ltp)
                     break
 
@@ -1064,39 +1247,41 @@ class LiveSignalEngine:
                 "timestamp": ts_str,
                 "entry_time": ts_str,
                 "action": "BUY_CE",
-                "contract": f"NIFTY {int(itm_strike)} CE (1 ITM)",
+                "contract": f"NIFTY {int(strike)} CE ({strk_lbl})",
                 "direction": "CALL",
-                "strike_price": int(itm_strike),
+                "strike_price": int(strike),
                 "option_type": "CE",
                 "entry_spot": round(spot_price, 2),
                 "entry_ltp": round(ce_ltp, 2),
                 "lots": lots,
                 "qty": qty,
-                "stop_loss_pts": self.state["stop_loss_pts"],
-                "stop_loss_price": round(ce_ltp - self.state["stop_loss_pts"], 2),
+                "stop_loss_pts": sl_pts,
+                "stop_loss_price": round(ce_ltp - sl_pts, 2),
                 "target_plan": {
-                    "breakeven_lock": round(ce_ltp + 3.0, 2),
-                    "target_1": round(ce_ltp + 6.0, 2),
-                    "target_2_runner": round(ce_ltp + 15.0, 2)
+                    "breakeven_lock": round(ce_ltp + 6.0, 2),
+                    "target_1": round(ce_ltp + 12.0, 2),
+                    "target_2_runner": round(ce_ltp + 30.0, 2)
                 },
-                "target_price": round(ce_ltp + 15.0, 2),
-                "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
+                "target_price": round(ce_ltp + 30.0, 2),
+                "max_risk_rupees": round(sl_pts * qty, 2),
                 "margin_utilized": round(ce_ltp * qty, 2),
-                "target_profit_rupees": round(15.0 * qty, 2),
+                "target_profit_rupees": round(30.0 * qty, 2),
                 "ma_9": round(ema9, 2),
                 "ema_21": round(ema21, 2),
-                "delta": 0.65,
+                "delta": delta,
+                "oi": int(pe_oi_tot),
+                "oi_change": int(pe_oichg_tot),
                 "weapon_signature": "WEAPON_BOTTOM_PUT_SHIELD / SUPPORT_BOUNCE",
-                "weapon_reason": f"Support Bounce at {s1:.1f} confirmed with EMA9 reclaim | Delta 0.65",
+                "weapon_reason": f"Support Bounce at {s1:.1f} confirmed with EMA9 reclaim | Delta {delta:.2f}",
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 
-        # 3. BEARISH BREAKDOWN SETUP
-        elif (spot_price <= s1 + 5.0 and is_bear_trend) or (spot_price <= s1 - 2.0) or (spot_run <= -25.0 and is_bear_trend):
-            itm_strike = round((spot_price + 50.0) / 50.0) * 50.0
+        # 3. BEARISH BREAKDOWN SETUP: Fresh breakdown below S1 with Call writers aggression
+        elif (s1 - 20.0 <= spot_price <= s1) and is_bear_trend and oi_bear_confirmed and (spot_run <= -5.0):
+            strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "PUT")
             pe_ltp = 145.0
             for t in ticks:
-                if t.get("type") == "PE" and float(t.get("strike", 0)) == itm_strike:
+                if t.get("type") == "PE" and float(t.get("strike", 0)) == strike:
                     pe_ltp = float(t.get("ltp") or pe_ltp)
                     break
 
@@ -1106,39 +1291,41 @@ class LiveSignalEngine:
                 "timestamp": ts_str,
                 "entry_time": ts_str,
                 "action": "BUY_PE",
-                "contract": f"NIFTY {int(itm_strike)} PE (1 ITM)",
+                "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
                 "direction": "PUT",
-                "strike_price": int(itm_strike),
+                "strike_price": int(strike),
                 "option_type": "PE",
                 "entry_spot": round(spot_price, 2),
                 "entry_ltp": round(pe_ltp, 2),
                 "lots": lots,
                 "qty": qty,
-                "stop_loss_pts": self.state["stop_loss_pts"],
-                "stop_loss_price": round(pe_ltp - self.state["stop_loss_pts"], 2),
+                "stop_loss_pts": sl_pts,
+                "stop_loss_price": round(pe_ltp - sl_pts, 2),
                 "target_plan": {
-                    "breakeven_lock": round(pe_ltp + 3.0, 2),
-                    "target_1": round(pe_ltp + 8.0, 2),
-                    "target_2_runner": round(pe_ltp + 20.0, 2)
+                    "breakeven_lock": round(pe_ltp + 6.0, 2),
+                    "target_1": round(pe_ltp + 15.0, 2),
+                    "target_2_runner": round(pe_ltp + 35.0, 2)
                 },
-                "target_price": round(pe_ltp + 20.0, 2),
-                "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
+                "target_price": round(pe_ltp + 35.0, 2),
+                "max_risk_rupees": round(sl_pts * qty, 2),
                 "margin_utilized": round(pe_ltp * qty, 2),
-                "target_profit_rupees": round(20.0 * qty, 2),
+                "target_profit_rupees": round(35.0 * qty, 2),
                 "ma_9": round(ema9, 2),
                 "ema_21": round(ema21, 2),
-                "delta": -0.65,
+                "delta": delta,
+                "oi": int(ce_oi_tot),
+                "oi_change": int(ce_oichg_tot),
                 "weapon_signature": "WEAPON_S1_BREAKDOWN / INSTITUTIONAL_SELLOFF",
-                "weapon_reason": f"Support {s1:.1f} Broken Down! Momentum Bearish (EMA9 < EMA21) | Target +20 pts runner | Delta -0.65",
+                "weapon_reason": f"Support {s1:.1f} Breakdown Confirmed (EMA9 < EMA21 {ema_diff:.1f}pts) | Call OI Pressure | Delta {delta:.2f}",
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 
-        # 4. RESISTANCE REJECTION REVERSAL SETUP
-        elif (spot_price >= r1 - 10.0 and spot_price <= r1 + 5.0) and (spot_price < ema9 or spot_run <= -6.0):
-            itm_strike = round((spot_price + 50.0) / 50.0) * 50.0
+        # 4. RESISTANCE REJECTION REVERSAL SETUP: Spot rejecting at R1 with Call writers wall
+        elif (r1 - 12.0 <= spot_price <= r1 + 5.0) and (spot_price < ema9) and (spot_run <= -6.0) and oi_bear_confirmed:
+            strike, delta, strk_lbl = self.calculate_trade_strike(spot_price, "PUT")
             pe_ltp = 145.0
             for t in ticks:
-                if t.get("type") == "PE" and float(t.get("strike", 0)) == itm_strike:
+                if t.get("type") == "PE" and float(t.get("strike", 0)) == strike:
                     pe_ltp = float(t.get("ltp") or pe_ltp)
                     break
 
@@ -1148,30 +1335,32 @@ class LiveSignalEngine:
                 "timestamp": ts_str,
                 "entry_time": ts_str,
                 "action": "BUY_PE",
-                "contract": f"NIFTY {int(itm_strike)} PE (1 ITM)",
+                "contract": f"NIFTY {int(strike)} PE ({strk_lbl})",
                 "direction": "PUT",
-                "strike_price": int(itm_strike),
+                "strike_price": int(strike),
                 "option_type": "PE",
                 "entry_spot": round(spot_price, 2),
                 "entry_ltp": round(pe_ltp, 2),
                 "lots": lots,
                 "qty": qty,
-                "stop_loss_pts": self.state["stop_loss_pts"],
-                "stop_loss_price": round(pe_ltp - self.state["stop_loss_pts"], 2),
+                "stop_loss_pts": sl_pts,
+                "stop_loss_price": round(pe_ltp - sl_pts, 2),
                 "target_plan": {
-                    "breakeven_lock": round(pe_ltp + 3.0, 2),
-                    "target_1": round(pe_ltp + 6.0, 2),
-                    "target_2_runner": round(pe_ltp + 15.0, 2)
+                    "breakeven_lock": round(pe_ltp + 6.0, 2),
+                    "target_1": round(pe_ltp + 12.0, 2),
+                    "target_2_runner": round(pe_ltp + 30.0, 2)
                 },
-                "target_price": round(pe_ltp + 15.0, 2),
-                "max_risk_rupees": round(self.state["stop_loss_pts"] * qty, 2),
+                "target_price": round(pe_ltp + 30.0, 2),
+                "max_risk_rupees": round(sl_pts * qty, 2),
                 "margin_utilized": round(pe_ltp * qty, 2),
-                "target_profit_rupees": round(15.0 * qty, 2),
+                "target_profit_rupees": round(30.0 * qty, 2),
                 "ma_9": round(ema9, 2),
                 "ema_21": round(ema21, 2),
-                "delta": -0.65,
+                "delta": delta,
+                "oi": int(ce_oi_tot),
+                "oi_change": int(ce_oichg_tot),
                 "weapon_signature": "WEAPON_TOP_CALL_FORTRESS / RESISTANCE_REJECTION",
-                "weapon_reason": f"Resistance Rejection at {r1:.1f} confirmed with EMA9 failure | Delta -0.65",
+                "weapon_reason": f"Resistance Rejection at {r1:.1f} confirmed with EMA9 failure | Delta {delta:.2f}",
                 "status": "ACTIVE_PENDING_CONFIRMATION"
             }
 
@@ -1179,7 +1368,6 @@ class LiveSignalEngine:
             self.state["active_signal"] = signal
             self.state["last_processed_time"] = ts_str
             self.save_state()
-            self._log_signal(signal)
 
             # If auto trading is enabled, execute trade immediately!
             if self.state.get("auto_trading"):
@@ -1190,17 +1378,20 @@ class LiveSignalEngine:
         return {"status": "monitoring", "spot": spot_price}
 
     def _sync_trades_to_storage(self, trades):
-        """Persist trades to JSON, CSV dossier, and SQLite database"""
-        os.makedirs(os.path.dirname(SIGNALS_LOG_FILE), exist_ok=True)
-        os.makedirs(os.path.dirname(SIGNALS_CSV_FILE), exist_ok=True)
-        os.makedirs(os.path.dirname(SIGNALS_DB_FILE), exist_ok=True)
+        """Persist trades to user-specific JSON, CSV dossier, and SQLite database"""
+        os.makedirs(os.path.dirname(self.signals_log_file), exist_ok=True)
+        os.makedirs(os.path.dirname(self.signals_csv_file), exist_ok=True)
+        os.makedirs(os.path.dirname(self.signals_db_file), exist_ok=True)
 
         # 1. Save JSON
         try:
-            with open(SIGNALS_LOG_FILE, "w", encoding="utf-8") as f:
+            with open(self.signals_log_file, "w", encoding="utf-8") as f:
                 json.dump(trades, f, indent=2)
+            if self.user_id in ["default", "admin"] and self.signals_log_file != SIGNALS_LOG_FILE:
+                with open(SIGNALS_LOG_FILE, "w", encoding="utf-8") as f:
+                    json.dump(trades, f, indent=2)
         except Exception as e:
-            print("Error saving signals JSON:", e)
+            print(f"Error saving signals JSON for {self.user_id}:", e)
 
         # 2. Save CSV dossier
         try:
@@ -1208,13 +1399,14 @@ class LiveSignalEngine:
                 "trade_id", "signal_id", "timestamp", "entry_time", "exit_time",
                 "action", "direction", "contract", "strike_price", "option_type",
                 "entry_spot", "exit_spot", "spot_change", "entry_ltp", "exit_ltp",
+                "is_breakeven", "gross_points", "gross_pnl", "brokerage", "slippage", "total_friction",
                 "pnl_points", "pnl_pct", "pnl_rupees", "ma_9", "ema_21", "oi",
                 "oi_change", "volume", "volume_spike", "delta", "lots", "qty",
                 "stop_loss_price", "target_price", "max_risk_rupees", "margin_utilized",
                 "execution_mode", "status", "weapon_signature", "weapon_reason"
             ]
             import csv
-            with open(SIGNALS_CSV_FILE, "w", newline="", encoding="utf-8") as f:
+            with open(self.signals_csv_file, "w", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
                 writer.writeheader()
                 for t in trades:
@@ -1222,13 +1414,22 @@ class LiveSignalEngine:
                     if not row.get("entry_time"):
                         row["entry_time"] = row.get("timestamp") or row.get("executed_at")
                     writer.writerow(row)
+            if self.user_id in ["default", "admin"] and self.signals_csv_file != SIGNALS_CSV_FILE:
+                with open(SIGNALS_CSV_FILE, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+                    writer.writeheader()
+                    for t in trades:
+                        row = dict(t)
+                        if not row.get("entry_time"):
+                            row["entry_time"] = row.get("timestamp") or row.get("executed_at")
+                        writer.writerow(row)
         except Exception as e:
-            print("Error saving signals CSV:", e)
+            print(f"Error saving signals CSV for {self.user_id}:", e)
 
         # 3. Save to SQLite database
         try:
             import sqlite3
-            conn = sqlite3.connect(SIGNALS_DB_FILE, timeout=30.0)
+            conn = sqlite3.connect(self.signals_db_file, timeout=30.0)
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS institutional_trades (
@@ -1247,6 +1448,12 @@ class LiveSignalEngine:
                     spot_change REAL,
                     entry_ltp REAL,
                     exit_ltp REAL,
+                    is_breakeven INTEGER DEFAULT 0,
+                    gross_points REAL DEFAULT 0.0,
+                    gross_pnl REAL DEFAULT 0.0,
+                    brokerage REAL DEFAULT 0.0,
+                    slippage REAL DEFAULT 0.0,
+                    total_friction REAL DEFAULT 0.0,
                     pnl_points REAL,
                     pnl_pct REAL,
                     pnl_rupees REAL,
@@ -1270,6 +1477,20 @@ class LiveSignalEngine:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Auto-migrate any missing columns in existing SQLite tables
+            new_cols = [
+                ("is_breakeven", "INTEGER DEFAULT 0"),
+                ("gross_points", "REAL DEFAULT 0.0"),
+                ("gross_pnl", "REAL DEFAULT 0.0"),
+                ("brokerage", "REAL DEFAULT 0.0"),
+                ("slippage", "REAL DEFAULT 0.0"),
+                ("total_friction", "REAL DEFAULT 0.0"),
+            ]
+            for col_name, col_def in new_cols:
+                try:
+                    cursor.execute(f"ALTER TABLE institutional_trades ADD COLUMN {col_name} {col_def}")
+                except Exception:
+                    pass
             for t in trades:
                 tid = t.get("trade_id") or t.get("signal_id")
                 if not tid:
@@ -1278,16 +1499,23 @@ class LiveSignalEngine:
                     INSERT INTO institutional_trades (
                         trade_id, signal_id, entry_time, exit_time, action, direction,
                         contract, strike_price, option_type, entry_spot, exit_spot, spot_change,
-                        entry_ltp, exit_ltp, pnl_points, pnl_pct, pnl_rupees,
+                        entry_ltp, exit_ltp, is_breakeven, gross_points, gross_pnl, brokerage, slippage, total_friction,
+                        pnl_points, pnl_pct, pnl_rupees,
                         ma_9, ema_21, oi, oi_change, volume, volume_spike, delta,
                         lots, qty, stop_loss_price, target_price, max_risk_rupees, margin_utilized,
                         execution_mode, status, weapon_signature, weapon_reason
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(trade_id) DO UPDATE SET
                         exit_time=excluded.exit_time,
                         exit_spot=excluded.exit_spot,
                         spot_change=excluded.spot_change,
                         exit_ltp=excluded.exit_ltp,
+                        is_breakeven=excluded.is_breakeven,
+                        gross_points=excluded.gross_points,
+                        gross_pnl=excluded.gross_pnl,
+                        brokerage=excluded.brokerage,
+                        slippage=excluded.slippage,
+                        total_friction=excluded.total_friction,
                         pnl_points=excluded.pnl_points,
                         pnl_pct=excluded.pnl_pct,
                         pnl_rupees=excluded.pnl_rupees,
@@ -1298,6 +1526,9 @@ class LiveSignalEngine:
                     float(t.get("strike_price") or 0.0), t.get("option_type"),
                     float(t.get("entry_spot") or 0.0), float(t.get("exit_spot") or 0.0), float(t.get("spot_change") or 0.0),
                     float(t.get("entry_ltp") or 0.0), float(t.get("exit_ltp") or 0.0),
+                    1 if t.get("is_breakeven") else 0,
+                    float(t.get("gross_points") or 0.0), float(t.get("gross_pnl") or 0.0),
+                    float(t.get("brokerage") or 0.0), float(t.get("slippage") or 0.0), float(t.get("total_friction") or 0.0),
                     float(t.get("pnl_points") or 0.0), float(t.get("pnl_pct") or 0.0), float(t.get("pnl_rupees") or 0.0),
                     float(t.get("ma_9") or 0.0), float(t.get("ema_21") or 0.0),
                     float(t.get("oi") or 0.0), float(t.get("oi_change") or 0.0),
@@ -1310,13 +1541,16 @@ class LiveSignalEngine:
             conn.commit()
             conn.close()
         except Exception as e:
-            print("Error syncing signals SQLite:", e)
+            print(f"Error syncing signals SQLite for {self.user_id}:", e)
 
     def _log_signal(self, sig):
         logs = []
-        if os.path.exists(SIGNALS_LOG_FILE):
+        target_file = self.signals_log_file
+        if not os.path.exists(target_file) and self.user_id in ["default", "admin", "1"] and os.path.exists(SIGNALS_LOG_FILE):
+            target_file = SIGNALS_LOG_FILE
+        if os.path.exists(target_file):
             try:
-                with open(SIGNALS_LOG_FILE, "r", encoding="utf-8") as f:
+                with open(target_file, "r", encoding="utf-8") as f:
                     logs = json.load(f)
             except Exception:
                 pass
@@ -1334,7 +1568,23 @@ class LiveSignalEngine:
 
         self._sync_trades_to_storage(logs[-200:])
 
-# Global Singleton
-live_signal_engine = LiveSignalEngine()
+# ══════════════════════════════════════════════════════════════════
+# MULTI-USER INSTANCE REGISTRY
+# ══════════════════════════════════════════════════════════════════
+_engines_registry = {}
+
+def get_live_signal_engine(user_id=None) -> LiveSignalEngine:
+    """Returns or instantiates an isolated LiveSignalEngine for a specific user."""
+    uid = str(user_id).strip() if user_id is not None and str(user_id).strip() else "default"
+    if uid not in _engines_registry:
+        _engines_registry[uid] = LiveSignalEngine(user_id=uid)
+    return _engines_registry[uid]
+
+def get_all_active_engines():
+    """Returns all active user engine instances."""
+    return list(_engines_registry.values())
+
+# Global default instance
+live_signal_engine = get_live_signal_engine("default")
 # Initial sync on load
 live_signal_engine._sync_trades_to_storage(live_signal_engine.get_trades())

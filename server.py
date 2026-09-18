@@ -36,7 +36,7 @@ from duckdb_engine import duckdb_engine
 from full_tick_collector import FullTickCollector
 from cloud_data_manager import cloud_data_manager
 from confluence_signal_engine import confluence_paper_trader
-from live_signal_engine import live_signal_engine
+from live_signal_engine import live_signal_engine, get_live_signal_engine, get_all_active_engines
 
 app = FastAPI(title="QuantGini Multi-User Virtual Trading Platform")
 
@@ -48,6 +48,12 @@ if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 templates_dir = os.path.join(BASE_DIR, "templates")
+
+# Helper to resolve isolated signal engine for the logged-in user
+def resolve_user_engine(request: Request):
+    user = get_current_user(request)
+    user_id = user["username"] if user else "default"
+    return get_live_signal_engine(user_id), user
 
 # ══════════════════════════════════════════════════════════════════
 # AUTHENTICATION HELPERS & MIDDLEWARE
@@ -83,6 +89,17 @@ def require_admin(request: Request) -> Dict[str, Any]:
 # ══════════════════════════════════════════════════════════════════
 @app.on_event("startup")
 def startup_event():
+    # Restore token from DB if file is missing
+    token_file = os.path.join(BASE_DIR, "fyers_token.json")
+    if not os.path.exists(token_file):
+        db_token_str = user_db.get_config("fyers_token")
+        if db_token_str:
+            try:
+                with open(token_file, "w") as f:
+                    f.write(db_token_str)
+                collector._init_fyers()
+            except Exception:
+                pass
     asyncio.create_task(live_tick_background_loop())
 
 async def live_tick_background_loop():
@@ -106,7 +123,7 @@ async def live_tick_background_loop():
                     await asyncio.to_thread(duckdb_engine.insert_ticks, records)
 
                 if spot_p > 0:
-                    # 1. Update all users' active positions & trailing SL
+                    # 1. Update all users' active desk positions & trailing SL
                     await asyncio.to_thread(multi_user_trader.update_all_positions_with_ticks, ticks, spot_p)
 
                     # 2. Evaluate master signal engine for algorithmic setups
@@ -114,8 +131,29 @@ async def live_tick_background_loop():
                     if sig_res and isinstance(sig_res, dict):
                         sig = sig_res.get("signal")
                         if sig:
-                            master_auto = bool(live_signal_engine.state.get("auto_trading", True))
-                            await asyncio.to_thread(multi_user_trader.broadcast_signal, sig, master_auto=master_auto)
+                            # Deliver signal to each user's isolated signal engine!
+                            all_users = user_db.get_all_users()
+                            for u in all_users:
+                                if u.get("status") != "active":
+                                    continue
+                                uname = u.get("username")
+                                u_eng = get_live_signal_engine(uname)
+                                # Only execute if that specific user has their master_switch ON and auto_trading ON!
+                                if u_eng.state.get("master_switch", True):
+                                    if u_eng.state.get("auto_trading", False):
+                                        u_eng.state["active_signal"] = dict(sig)
+                                        u_eng.execute_signal(sig.get("signal_id"), is_auto=True)
+                                    else:
+                                        u_eng.state["active_signal"] = dict(sig)
+                                        u_eng.save_state()
+
+                            # Broadcast to desk traders with master_auto=False so user's personal config controls it
+                            await asyncio.to_thread(multi_user_trader.broadcast_signal, sig, master_auto=False)
+
+                    # 3. Update trailing SL and positions for all active user signal engines
+                    for u_eng in get_all_active_engines():
+                        if u_eng.wallet.get("active_positions"):
+                            u_eng.update_live_positions()
         except Exception as e:
             pass
         await asyncio.sleep(2)  # Tick every 2 seconds
@@ -405,118 +443,141 @@ def api_strike_sr_history(strike: float, date: Optional[str] = None):
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/signals/status")
-def get_signal_engine_status(timestamp: str = None):
-    """Get live signal engine state (switch status, lots, strike mode, active signal)."""
+def get_signal_engine_status(request: Request, timestamp: str = None):
+    """Get live signal engine state (switch status, lots, strike mode, active signal) isolated per user."""
+    engine, user = resolve_user_engine(request)
     try:
         connected, feed_msg = collector.is_fyers_connected()
-        live_signal_engine.state["live_connected"] = connected
-        live_signal_engine.state["feed_message"] = feed_msg
+        engine.state["live_connected"] = connected
+        engine.state["feed_message"] = feed_msg
         
-        is_open, msg = live_signal_engine.is_market_open()
-        live_signal_engine.state["is_market_open"] = is_open
-        live_signal_engine.state["market_status"] = msg
+        is_open, msg = engine.is_market_open()
+        engine.state["is_market_open"] = is_open
+        engine.state["market_status"] = msg
         df = duckdb_engine.get_latest_option_chain()
         if df is not None and not df.empty:
             ticks = df.to_dict("records")
             spot_price = float(ticks[0].get("spot_price", 0.0))
-            live_signal_engine.state["live_spot_price"] = spot_price
-            live_signal_engine.state["last_tick_time"] = str(ticks[0].get("time_str", datetime.now().strftime("%H:%M:%S")))
+            engine.state["live_spot_price"] = spot_price
+            engine.state["last_tick_time"] = str(ticks[0].get("time_str", datetime.now().strftime("%H:%M:%S")))
             if is_open:
-                live_signal_engine.process_market_tick(ticks, spot_price, current_timestamp=None)
+                engine.process_market_tick(ticks, spot_price, current_timestamp=None)
     except Exception as e:
-        live_signal_engine.state["error"] = str(e)
-    return live_signal_engine.state
+        engine.state["error"] = str(e)
+    res = dict(engine.state)
+    res["current_user"] = user["username"] if user else "default"
+    res["current_user_name"] = user["full_name"] if user else "Demo Trader"
+    res["user_role"] = user["role"] if user else "guest"
+    return res
 
 @app.post("/api/signals/toggle_switch")
-def toggle_signal_switch(payload: dict):
+def toggle_signal_switch(payload: dict, request: Request):
+    engine, _ = resolve_user_engine(request)
     is_on = payload.get("master_switch", True)
-    return live_signal_engine.set_switch(is_on)
+    return engine.set_switch(is_on)
 
 @app.post("/api/signals/set_lots")
-def set_signal_lots(payload: dict):
+def set_signal_lots(payload: dict, request: Request):
+    engine, _ = resolve_user_engine(request)
     lots = payload.get("lots", 2)
-    return live_signal_engine.set_lot_size(lots)
+    return engine.set_lot_size(lots)
+
+@app.post("/api/signals/set_daily_limit")
+def set_daily_limit_route(payload: dict, request: Request):
+    """Set daily profit trades target limit (2, 3, 4, 5, etc.)."""
+    engine, _ = resolve_user_engine(request)
+    limit = payload.get("max_daily_trades") or payload.get("limit", 2)
+    return engine.set_max_daily_trades(limit)
 
 @app.post("/api/signals/set_strike_mode")
-def set_signal_strike_mode(payload: dict):
+def set_signal_strike_mode(payload: dict, request: Request):
+    engine, _ = resolve_user_engine(request)
     mode = payload.get("strike_mode", "ITM_1")
-    return live_signal_engine.set_strike_mode(mode)
+    return engine.set_strike_mode(mode)
 
 @app.post("/api/signals/toggle_auto")
-def toggle_signal_auto(payload: dict):
+def toggle_signal_auto(payload: dict, request: Request):
+    engine, _ = resolve_user_engine(request)
     is_auto = payload.get("auto_trading", False)
-    return live_signal_engine.set_auto_mode(is_auto)
+    return engine.set_auto_mode(is_auto)
 
 @app.post("/api/signals/execute")
-def execute_signal_action(payload: dict = None):
+def execute_signal_action(request: Request, payload: dict = None):
+    engine, _ = resolve_user_engine(request)
     payload = payload or {}
     sig_id = payload.get("signal_id")
     is_auto = payload.get("is_auto", False)
-    return live_signal_engine.execute_signal(sig_id, is_auto=is_auto)
+    return engine.execute_signal(sig_id, is_auto=is_auto)
 
 @app.post("/api/signals/cancel")
-def cancel_signal_action(payload: dict = None):
+def cancel_signal_action(request: Request, payload: dict = None):
+    engine, _ = resolve_user_engine(request)
     payload = payload or {}
     sig_id = payload.get("signal_id")
-    return live_signal_engine.cancel_signal(sig_id)
+    return engine.cancel_signal(sig_id)
 
 @app.post("/api/signals/test")
 @app.post("/api/signals/test_trigger")
-def trigger_test_signal_route(payload: dict = None):
+def trigger_test_signal_route(request: Request, payload: dict = None):
+    engine, user = resolve_user_engine(request)
     payload = payload or {}
     direction = payload.get("direction", "CALL")
-    res = live_signal_engine.trigger_test_signal(direction)
-    sig = res.get("signal")
-    if sig:
-        master_auto = bool(live_signal_engine.state.get("auto_trading", True))
-        multi_user_trader.broadcast_signal(sig, master_auto=master_auto)
+    res = engine.trigger_test_signal(direction)
     return res
 
 @app.get("/api/signals/wallet")
-def get_signal_wallet():
-    """Returns the dedicated virtual wallet status for the live signals desk."""
-    return live_signal_engine.get_wallet()
+def get_signal_wallet(request: Request):
+    """Returns the dedicated virtual wallet status for the current logged-in user."""
+    engine, _ = resolve_user_engine(request)
+    return engine.get_wallet()
 
 @app.get("/api/signals/history")
-def get_signal_history(date: Optional[str] = None):
-    """Returns list of trades for the signals history table."""
-    return live_signal_engine.get_trades(date=date)
+def get_signal_history(request: Request, date: Optional[str] = None):
+    """Returns list of trades for current user's signals history table."""
+    engine, _ = resolve_user_engine(request)
+    return engine.get_trades(date=date)
 
 @app.get("/api/signals/trades")
-def get_signal_trades(date: Optional[str] = None):
-    return {"status": "ok", "trades": live_signal_engine.get_trades(date=date), "wallet": live_signal_engine.get_wallet()}
+def get_signal_trades(request: Request, date: Optional[str] = None):
+    engine, _ = resolve_user_engine(request)
+    return {"status": "ok", "trades": engine.get_trades(date=date), "wallet": engine.get_wallet()}
 
 @app.post("/api/signals/trades/close")
-def close_signal_trade_route(payload: dict):
-    """Resolves or closes an active signal trade (Win / SL / Target hit)."""
+def close_signal_trade_route(payload: dict, request: Request):
+    """Resolves or closes an active signal trade (Win / SL / Target hit) in user wallet."""
+    engine, _ = resolve_user_engine(request)
     trade_id = payload.get("trade_id")
     outcome = payload.get("outcome", "TARGET_HIT")
     exit_ltp = payload.get("exit_ltp")
-    return live_signal_engine.close_trade(trade_id, outcome=outcome, exit_ltp=exit_ltp)
+    return engine.close_trade(trade_id, outcome=outcome, exit_ltp=exit_ltp)
 
 @app.post("/api/signals/delete_trades")
 @app.post("/api/signals/trades/delete")
-def delete_signal_trades(payload: dict):
+def delete_signal_trades(payload: dict, request: Request):
+    engine, _ = resolve_user_engine(request)
     trade_ids = payload.get("trade_ids", [])
-    return live_signal_engine.delete_trades(trade_ids)
+    return engine.delete_trades(trade_ids)
 
 @app.post("/api/signals/reset_wallet")
 @app.post("/api/signals/wallet/reset")
-def reset_signal_wallet(payload: dict = None):
+def reset_signal_wallet(request: Request, payload: dict = None):
+    engine, _ = resolve_user_engine(request)
     payload = payload or {}
     init_cap = float(payload.get("initial_capital", 100000.0))
-    return live_signal_engine.reset_wallet(init_cap)
+    return engine.reset_wallet(init_cap)
 
 @app.post("/api/signals/wallet/reset_daily_limit")
-def reset_signal_daily_limit():
-    return live_signal_engine.reset_daily_limit()
+def reset_signal_daily_limit(request: Request):
+    engine, _ = resolve_user_engine(request)
+    return engine.reset_daily_limit()
 
 @app.get("/api/signals/export_csv")
-def export_signals_csv(date: Optional[str] = None):
-    """Export trades history as downloadable CSV."""
+def export_signals_csv(request: Request, date: Optional[str] = None):
+    """Export user's trades history as downloadable CSV."""
+    engine, user = resolve_user_engine(request)
     import pandas as pd
-    import io
-    trades = live_signal_engine.get_trades(date=date)
+    trades = engine.get_trades(date=date)
+    uname = user["username"] if user else "user"
     if not trades:
         content = "trade_id,timestamp,action,contract,strike_price,entry_ltp,exit_ltp,pnl_points,pnl_rupees,status\n"
     else:
@@ -525,7 +586,7 @@ def export_signals_csv(date: Optional[str] = None):
     return Response(
         content=content,
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=institutional_trades_{date or 'all'}.csv"}
+        headers={"Content-Disposition": f"attachment; filename=institutional_trades_{uname}_{date or 'all'}.csv"}
     )
 
 @app.get("/api/reversal/trades")
@@ -635,13 +696,28 @@ def api_save_user_settings(payload: dict, user: dict = Depends(require_auth)):
         lots=int(payload.get("lots", 1)),
         trade_direction=str(payload.get("trade_direction", "BOTH")).upper(),
         sl_pts=float(payload.get("sl_pts", 25.0)),
-        target_pts=float(payload.get("target_pts", 35.0))
+        target_pts=float(payload.get("target_pts", 35.0)),
+        notifications_enabled=int(payload.get("notifications_enabled", 1)),
+        max_open_positions=int(payload.get("max_open_positions", 1))
     )
+
+@app.post("/api/user/settings/toggle_notifications")
+def api_toggle_notifications(payload: dict, user: dict = Depends(require_auth)):
+    """Quick toggle to turn notifications ON or OFF."""
+    enabled = int(payload.get("enabled", 1))
+    user_db.update_user_notifications(user["id"], enabled)
+    if not enabled:
+        user_db.dismiss_all_alerts(user["id"])
+    return {"status": "ok", "notifications_enabled": enabled}
 
 # ── Interactive Signal Notifications & Alerts ───────────────────────
 @app.get("/api/user/alerts/pending")
 def api_get_pending_alerts(user: dict = Depends(require_auth)):
     """Returns active pending signal alerts for the user."""
+    # If user has notifications disabled, return empty
+    cfg = user_db.get_user_settings(user["id"])
+    if cfg.get("notifications_enabled", 1) == 0:
+        return {"status": "ok", "alerts": []}
     return {"status": "ok", "alerts": user_db.get_pending_alerts(user["id"])}
 
 @app.get("/api/user/alerts/history")
@@ -652,12 +728,23 @@ def api_get_alerts_history(date: Optional[str] = None, user: dict = Depends(requ
 @app.post("/api/user/alerts/{alert_id}/execute")
 def api_execute_alert(alert_id: int, user: dict = Depends(require_auth)):
     """User clicks 'Execute' button on a signal popup."""
-    return multi_user_trader.execute_alert(user["id"], alert_id)
+    res = multi_user_trader.execute_alert(user["id"], alert_id)
+    # Dismiss any other pending alerts so they don't spam
+    user_db.dismiss_all_alerts(user["id"])
+    return res
 
 @app.post("/api/user/alerts/{alert_id}/cancel")
 def api_cancel_alert(alert_id: int, user: dict = Depends(require_auth)):
     """User clicks 'Cancel' button to dismiss a signal popup."""
-    return multi_user_trader.cancel_alert(user["id"], alert_id)
+    res = multi_user_trader.cancel_alert(user["id"], alert_id)
+    user_db.dismiss_all_alerts(user["id"])
+    return res
+
+@app.post("/api/user/alerts/dismiss_all")
+def api_dismiss_all_alerts(user: dict = Depends(require_auth)):
+    """User dismisses all pending alerts."""
+    user_db.dismiss_all_alerts(user["id"])
+    return {"status": "ok", "message": "All alerts dismissed"}
 
 # ── User Trades History with Date Range Filter ──────────────────────
 @app.get("/api/user/trades")
@@ -766,6 +853,34 @@ def api_admin_live_positions(admin: dict = Depends(require_admin)):
     """Real-time stream of all open positions across all users."""
     return {"status": "ok", "positions": multi_user_trader.get_all_platform_open_positions()}
 
+@app.post("/api/admin/positions/{trade_id}/close")
+def api_admin_close_single_position(trade_id: str, admin: dict = Depends(require_admin)):
+    """Admin manually exits an open position for any trader."""
+    with user_db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM user_positions WHERE trade_id = ?", (trade_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Position not found")
+        uid = row["user_id"]
+    return multi_user_trader.close_position(user_id=uid, trade_id=trade_id, outcome="ADMIN_EXIT")
+
+@app.post("/api/admin/positions/close_all")
+def api_admin_close_all_positions(payload: dict, admin: dict = Depends(require_admin)):
+    """Admin squares off all positions for a specific trader or all traders."""
+    username = payload.get("username", "ALL")
+    positions = multi_user_trader.get_all_platform_open_positions()
+    if username != "ALL":
+        positions = [p for p in positions if p.get("username") == username]
+    closed_count = 0
+    for p in positions:
+        try:
+            multi_user_trader.close_position(user_id=p["user_id"], trade_id=p["trade_id"], outcome="ADMIN_BULK_EXIT")
+            closed_count += 1
+        except Exception:
+            pass
+    return {"status": "ok", "closed_count": closed_count, "message": f"Successfully squared off {closed_count} positions"}
+
 @app.get("/api/admin/export_day_data")
 def api_admin_export_day_data(date: Optional[str] = None, admin: dict = Depends(require_admin)):
     """Packages today's DuckDB file, trades CSV, and alerts into a downloadable ZIP for the PC."""
@@ -823,9 +938,15 @@ def api_admin_update_fyers_token(payload: dict, admin: dict = Depends(require_ad
     if not token:
         raise HTTPException(status_code=400, detail="access_token is required")
     
+    token_data = {"client_id": client_id, "access_token": token}
     token_file = os.path.join(BASE_DIR, "fyers_token.json")
     with open(token_file, "w") as f:
-        json.dump({"client_id": client_id, "access_token": token}, f)
+        json.dump(token_data, f)
+    
+    try:
+        user_db.set_config("fyers_token", json.dumps(token_data))
+    except Exception:
+        pass
     
     try:
         collector._init_fyers()
@@ -842,9 +963,15 @@ def api_sync_push_token(payload: dict):
     if not token:
         raise HTTPException(status_code=400, detail="access_token is required")
     
+    token_data = {"client_id": client_id, "access_token": token}
     token_file = os.path.join(BASE_DIR, "fyers_token.json")
     with open(token_file, "w") as f:
-        json.dump({"client_id": client_id, "access_token": token}, f)
+        json.dump(token_data, f)
+    
+    try:
+        user_db.set_config("fyers_token", json.dumps(token_data))
+    except Exception:
+        pass
     
     try:
         collector._init_fyers()
