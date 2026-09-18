@@ -446,6 +446,7 @@ def api_strike_sr_history(strike: float, date: Optional[str] = None):
 def get_signal_engine_status(request: Request, timestamp: str = None):
     """Get live signal engine state (switch status, lots, strike mode, active signal) isolated per user."""
     engine, user = resolve_user_engine(request)
+    engine.state.pop("error", None)
     try:
         connected, feed_msg = collector.is_fyers_connected()
         engine.state["live_connected"] = connected
