@@ -1196,6 +1196,10 @@ class LiveSignalEngine:
         if not self.state.get("master_switch", True):
             return {"status": "disabled", "message": "Signal Engine Master Switch is OFF"}
 
+        from datetime import timezone, timedelta
+        ist = timezone(timedelta(hours=5, minutes=30))
+        now_dt = datetime.now(ist).replace(tzinfo=None)
+
         # Market Open & Weekend Guard
         is_sim = bool(current_timestamp)
         is_open, market_msg = self.is_market_open(None if not is_sim else current_timestamp)
