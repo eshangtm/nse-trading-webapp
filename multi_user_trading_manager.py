@@ -438,6 +438,16 @@ class MultiUserTradingManager:
                 if live_ltp <= 0:
                     continue
 
+                # Auto Clean Stale Overnight Positions & 15:25 Market Close
+                pos_date = str(p.get("timestamp", ""))[:10]
+                today_date_str = get_ist_now().strftime("%Y-%m-%d")
+                curr_hour_min = get_ist_now().strftime("%H:%M")
+
+                if (pos_date and pos_date < today_date_str) or curr_hour_min >= "15:25":
+                    exit_reason = "⏰ Auto Intraday 15:25 Square-Off" if curr_hour_min >= "15:25" else "🧹 Auto Expired Stale Overnight Position"
+                    to_close.append((p["user_id"], p["trade_id"], live_ltp, exit_reason, spot_price))
+                    continue
+
                 entry_p = float(p["entry_price"])
                 qty = int(p["quantity"])
                 target_p = float(p["target_price"])
@@ -528,6 +538,15 @@ class MultiUserTradingManager:
                                 })
                             except Exception as e:
                                 print("[TELEGRAM] TSL alert error:", e)
+
+                # STAGE 0: FAST PULLBACK COST SHIELD (+₹200 net profit OR Peak >= 2.0 pts):
+                # When trade sees early profit (+₹200 - ₹400), lock SL to Breakeven/Cost immediately!
+                elif peak_pts >= 2.0 or (cur_gain * qty >= 200.0):
+                    cost_sl = round(entry_p + brok_pts + 0.1, 2)
+                    if cost_sl > new_sl:
+                        new_sl = cost_sl
+                        trailed = 1
+                        tsl_stage = f"🛡️ COST LOCK (Peak +{peak_pts:.1f} pts ➔ SL Cost ₹{cost_sl:.2f})"
 
                 # Check Exits:
                 if live_ltp <= new_sl:
