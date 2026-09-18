@@ -55,54 +55,65 @@ def save_telegram_config(token: str, chat_id: str):
 def send_telegram_message(text: str, parse_mode: str = "Markdown", chat_id: Optional[str] = None) -> Dict[str, Any]:
     cfg = load_telegram_config()
     token = cfg["token"]
-    target_chat = chat_id or cfg["chat_id"]
+    raw_targets = chat_id or cfg["chat_id"]
 
-    if not token or not target_chat:
+    if not token or not raw_targets:
         return {"status": "unconfigured", "message": "Telegram Bot Token or Chat ID not set."}
 
+    targets = [t.strip() for t in str(raw_targets).split(",") if t.strip()]
+    last_res = {"status": "ok"}
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    payload = {
-        "chat_id": target_chat,
-        "text": text,
-        "parse_mode": parse_mode
-    }
-    try:
-        res = requests.post(url, json=payload, timeout=8)
-        data = res.json()
-        if data.get("ok"):
-            return {"status": "ok", "message_id": data["result"]["message_id"]}
-        return {"status": "error", "message": data.get("description", "Failed to send message")}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+
+    for t_chat in targets:
+        payload = {
+            "chat_id": t_chat,
+            "text": text,
+            "parse_mode": parse_mode
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=8)
+            data = res.json()
+            if data.get("ok"):
+                last_res = {"status": "ok", "message_id": data["result"]["message_id"]}
+            else:
+                last_res = {"status": "error", "message": data.get("description", "Failed to send message")}
+        except Exception as e:
+            last_res = {"status": "error", "message": str(e)}
+    return last_res
 
 def send_telegram_photo(photo_path: str, caption: str = "", parse_mode: str = "Markdown", chat_id: Optional[str] = None) -> Dict[str, Any]:
     cfg = load_telegram_config()
     token = cfg["token"]
-    target_chat = chat_id or cfg["chat_id"]
+    raw_targets = chat_id or cfg["chat_id"]
 
-    if not token or not target_chat:
+    if not token or not raw_targets:
         return {"status": "unconfigured", "message": "Telegram Bot Token or Chat ID not set."}
 
     if not os.path.exists(photo_path):
         return {"status": "error", "message": f"Photo path not found: {photo_path}"}
 
+    targets = [t.strip() for t in str(raw_targets).split(",") if t.strip()]
+    last_res = {"status": "ok"}
     url = f"https://api.telegram.org/bot{token}/sendPhoto"
-    data = {
-        "chat_id": target_chat,
-        "caption": caption[:1024],  # Telegram 1024 char caption limit
-        "parse_mode": parse_mode
-    }
 
-    try:
-        with open(photo_path, "rb") as f:
-            files = {"photo": f}
-            res = requests.post(url, data=data, files=files, timeout=15)
-            res_json = res.json()
-            if res_json.get("ok"):
-                return {"status": "ok", "message_id": res_json["result"]["message_id"]}
-            return {"status": "error", "message": res_json.get("description", "Photo send failed")}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    for t_chat in targets:
+        data = {
+            "chat_id": t_chat,
+            "caption": caption[:1024],
+            "parse_mode": parse_mode
+        }
+        try:
+            with open(photo_path, "rb") as f:
+                files = {"photo": f}
+                res = requests.post(url, data=data, files=files, timeout=15)
+                res_json = res.json()
+                if res_json.get("ok"):
+                    last_res = {"status": "ok", "message_id": res_json["result"]["message_id"]}
+                else:
+                    last_res = {"status": "error", "message": res_json.get("description", "Photo send failed")}
+        except Exception as e:
+            last_res = {"status": "error", "message": str(e)}
+    return last_res
 
 def format_long_trade_caption(trade_plan: Dict[str, Any]) -> str:
     """
