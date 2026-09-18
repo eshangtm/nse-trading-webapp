@@ -11,6 +11,13 @@ from typing import Dict, List, Any, Optional
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 from user_database import user_db
 
+try:
+    from telegram_notifier import send_telegram_trade_entry, send_telegram_tsl_update, send_telegram_trade_exit
+except Exception:
+    send_telegram_trade_entry = None
+    send_telegram_tsl_update = None
+    send_telegram_trade_exit = None
+
 QTY_PER_LOT = 65
 BROKERAGE_PER_LOT = 70.0
 
@@ -18,6 +25,7 @@ class MultiUserTradingManager:
     def __init__(self, db=user_db):
         self.db = db
         self._last_signal_time: Dict[int, float] = {}
+        self._last_notified_sl: Dict[str, float] = {}
 
     def get_user_portfolio(self, user_id: int) -> Dict[str, Any]:
         """Fetch complete isolated portfolio, margins, and active positions for a user."""
@@ -169,6 +177,23 @@ class MultiUserTradingManager:
                   sl_price, target_price))
             conn.commit()
 
+        # Dispatch Telegram Notification for Order Entry
+        try:
+            if send_telegram_trade_entry:
+                send_telegram_trade_entry({
+                    "contract": contract,
+                    "direction": direction,
+                    "entry_price": entry_price,
+                    "sl_price": sl_price,
+                    "target_price": target_price,
+                    "quantity": qty,
+                    "lots": lots,
+                    "spot_price": spot_price,
+                    "reason": f"Order Placed ({order_type})"
+                })
+        except Exception as e:
+            print("[TELEGRAM] Failed to send entry alert:", e)
+
         return {
             "status": "ok",
             "message": f"Order Placed: {contract} @ ₹{entry_price:.2f} (Qty: {qty}) | Target: ₹{target_price:.2f} | SL: ₹{sl_price:.2f}",
@@ -231,6 +256,27 @@ class MultiUserTradingManager:
             cursor.execute("DELETE FROM user_positions WHERE trade_id = ?", (trade_id,))
             conn.commit()
 
+        # Clean tracking & dispatch Telegram Exit Alert
+        self._last_notified_sl.pop(trade_id, None)
+        try:
+            if send_telegram_trade_exit:
+                send_telegram_trade_exit({
+                    "contract": pos.get("contract", f"NIFTY {int(pos.get('strike', 0))} {pos.get('option_type', '')}"),
+                    "direction": pos.get("direction", "CALL"),
+                    "entry_price": entry_price,
+                    "exit_price": actual_exit,
+                    "quantity": qty,
+                    "lots": lots,
+                    "brokerage": brokerage,
+                    "slippage": slippage_rupees,
+                    "net_pnl": net_pnl,
+                    "exit_reason": outcome,
+                    "entry_timestamp": pos.get("timestamp", ""),
+                    "exit_timestamp": exit_ts
+                })
+        except Exception as e:
+            print("[TELEGRAM] Failed to send exit alert:", e)
+
         return {
             "status": "ok",
             "message": f"Position Closed: {pos['contract']} @ ₹{actual_exit:.2f} | Net PnL: ₹{net_pnl:+,.2f} ({pnl_pts:+.2f} pts)",
@@ -239,23 +285,29 @@ class MultiUserTradingManager:
         }
 
     def trail_sl_to_cost(self, user_id: int, trade_id: str) -> Dict[str, Any]:
-        """Locks Stop Loss to Entry Cost + ₹0.50 (Risk-Free Trade)."""
+        """Locks Stop Loss to Early Shield (+4.4 pts) guaranteeing net profit after brokerage & slippage."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT entry_price, stop_loss_price FROM user_positions WHERE trade_id = ? AND user_id = ?", (trade_id, user_id))
+            cursor.execute("SELECT entry_price, stop_loss_price, quantity, lots FROM user_positions WHERE trade_id = ? AND user_id = ?", (trade_id, user_id))
             row = cursor.fetchone()
             if not row:
                 return {"status": "error", "message": "Position not found"}
 
             entry_p = float(row["entry_price"])
-            locked_sl = round(entry_p + 0.50, 2)
+            qty = int(row["quantity"])
+            lots = int(row["lots"])
+            brok_pts = round((BROKERAGE_PER_LOT * lots) / max(1, qty), 2)
+            slip_pts = 0.60
+            net_min_pts = round(120.0 / max(1, qty), 2)
+            locked_sl = round(entry_p + brok_pts + slip_pts + net_min_pts, 2) # ~4.40 pts
+
             cursor.execute("""
                 UPDATE user_positions 
-                SET stop_loss_price = ?, trailed_to_cost = 1, tsl_stage = 'COST+0.5' 
+                SET stop_loss_price = ?, trailed_to_cost = 1, tsl_stage = 'EARLY_NET_SHIELD' 
                 WHERE trade_id = ?
             """, (locked_sl, trade_id))
             conn.commit()
-            return {"status": "ok", "message": f"Stop Loss Trailed to Cost (₹{locked_sl:.2f})"}
+            return {"status": "ok", "message": f"Stop Loss Trailed to Early Net Shield (+₹120 Net at ₹{locked_sl:.2f})"}
 
     def update_all_positions_with_ticks(self, ticks: List[Dict[str, Any]], spot_price: float):
         """
@@ -317,12 +369,27 @@ class MultiUserTradingManager:
                 # STAGE 3: MEGA RUNNER -2.0 PT EXACT RATCHET (Peak >= 12.0 pts):
                 # When trade is flying, trail strictly 2 points behind the highest peak!
                 # Examples: Peak 30 -> SL 28, Peak 34 -> SL 32, Peak 36 -> SL 34, Peak 71 -> SL 69!
+                tid = p["trade_id"]
+                last_notified = self._last_notified_sl.get(tid, 0.0)
+
                 if peak_pts >= 12.0:
                     cand = round(entry_p + peak_pts - 2.0, 2)
                     if cand > new_sl:
                         new_sl = cand
                         trailed = 1
                         tsl_stage = f"🚀 MEGA RIDE -2pt (Peak +{peak_pts:.1f} ➔ SL +{round(cand - entry_p, 1)})"
+                        if send_telegram_tsl_update and (abs(cand - last_notified) >= 2.0 or last_notified < entry_p):
+                            self._last_notified_sl[tid] = cand
+                            try:
+                                send_telegram_tsl_update({
+                                    "contract": p["contract"],
+                                    "peak_pts": peak_pts,
+                                    "new_sl": cand,
+                                    "entry_price": entry_p,
+                                    "quantity": qty
+                                })
+                            except Exception as e:
+                                print("[TELEGRAM] TSL alert error:", e)
 
                 # STAGE 2: ACCELERATING RUNNER (Peak >= 8.0 to 11.9 pts):
                 # Trail at Peak - 2.5 pts to lock in solid gain
@@ -332,6 +399,18 @@ class MultiUserTradingManager:
                         new_sl = cand
                         trailed = 1
                         tsl_stage = f"🎯 MID RUNNER (Peak +{peak_pts:.1f} ➔ SL +{round(cand - entry_p, 1)})"
+                        if send_telegram_tsl_update and (abs(cand - last_notified) >= 2.0 or last_notified < entry_p):
+                            self._last_notified_sl[tid] = cand
+                            try:
+                                send_telegram_tsl_update({
+                                    "contract": p["contract"],
+                                    "peak_pts": peak_pts,
+                                    "new_sl": cand,
+                                    "entry_price": entry_p,
+                                    "quantity": qty
+                                })
+                            except Exception as e:
+                                print("[TELEGRAM] TSL alert error:", e)
 
                 # STAGE 1: EARLY PULLBACK SHIELD (Peak >= 5.5 to 7.9 pts):
                 # Covers ₹70 brokerage + slippage + locks ₹100-₹150 guaranteed net profit
@@ -342,6 +421,19 @@ class MultiUserTradingManager:
                         trailed = 1
                         net_rs = round((cand - entry_p - brok_pts - slip_pts) * qty, 0)
                         tsl_stage = f"🛡️ NET SHIELD (+{round(cand - entry_p, 1)} pts | +₹{int(net_rs)} Net)"
+                        if send_telegram_tsl_update and last_notified < cand:
+                            self._last_notified_sl[tid] = cand
+                            try:
+                                send_telegram_tsl_update({
+                                    "contract": p["contract"],
+                                    "peak_pts": peak_pts,
+                                    "new_sl": cand,
+                                    "entry_price": entry_p,
+                                    "quantity": qty,
+                                    "net_rs": net_rs
+                                })
+                            except Exception as e:
+                                print("[TELEGRAM] TSL alert error:", e)
 
                 # Check Exits:
                 if live_ltp <= new_sl:

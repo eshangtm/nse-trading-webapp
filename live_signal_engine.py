@@ -56,7 +56,7 @@ class LiveSignalEngine:
             "target_p6_lock": 12.0,       # Lock profit at +12 pts
             "target_p12_lock": 25.0,      # Runner trail at +25 pts
             "max_eod_time": "15:00",      # Strict 3:00 PM Exit
-            "max_trades_per_day": 2,      # Disciplined Rule: Max 1-2 A+ setups per day
+            "max_trades_per_day": 999,    # Unlimited (User removed max 2 limit)
             "active_signal": None,
             "last_processed_time": None,
             "cooldown_until": None        # Mandatory post-exit cooling window
@@ -823,10 +823,6 @@ class LiveSignalEngine:
         if not self.state["master_switch"]:
             return {"status": "disabled", "message": "Signal Engine is switched OFF"}
 
-        # Respect daily 5-trade limit
-        if self.wallet.get("daily_trades_taken", 0) >= self.state.get("max_trades_per_day", 5):
-            return {"status": "daily_limit_reached", "message": "Daily max 5 A+ trades taken. Protection lock active."}
-
         if len(df_15m_window) < 15:
             return {"status": "waiting", "message": "Accumulating 15-minute timeframe bars"}
 
@@ -1102,11 +1098,8 @@ class LiveSignalEngine:
             self.wallet["last_trade_date"] = today_str
             self.wallet["daily_trades_taken"] = 0
             self.save_wallet()
-
-        max_daily = int(self.state.get("max_trades_per_day", 2))
-        profit_trades_count = int(self.wallet.get("daily_trades_taken", 0))
-        if profit_trades_count >= max_daily:
-            return {"status": "daily_limit_reached", "message": f"Daily target of {max_daily} profit trades reached ({profit_trades_count}/{max_daily})."}
+        # Daily quota restriction removed per user request (Unlimited trades allowed)
+        max_daily = int(self.state.get("max_trades_per_day", 999))
 
         # 2.5 Market Opening Range & Curfew Guard (Strict No-Trade Zones)
         t_part = ts_str.split(" ")[-1] if " " in ts_str else ""
